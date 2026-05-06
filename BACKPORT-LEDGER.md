@@ -64,6 +64,67 @@ Reason: Applies without manual edits, touches only Swift/test files, and passes 
 Backport commit: this commit
 ```
 
+### Settings Final-State Bundle Deferred
+
+```text
+Commit: 4167c898b1245b9eb26d6fa86282413e3188dfd0
+Original subject: config: switch settings persistence to canonical JSON files
+Touched Swift files:
+- Sources/OmniWM/App/AppBootstrapPlanner.swift
+- Sources/OmniWM/App/AppDelegate.swift
+- Sources/OmniWM/App/UpdateCoordinator.swift
+- Sources/OmniWM/Core/Config/*
+- Sources/OmniWM/UI/SettingsView.swift
+- Sources/OmniWM/UI/StatusBar/StatusBarMenu.swift
+- Tests/OmniWMTests/*Settings*
+Touched Zig/build files: none
+Bug reproducible on 6fde9b9? no; this is a settings persistence migration, not a focused bugfix
+Tests added or updated:
+- SettingsStoreTests
+- SettingsViewTests
+- StatusBarMenuTests
+- AppBootstrapPlannerTests
+- AppDelegateIPCTests
+- UpdateCoordinatorTests
+Action: settings-final-state
+Reason: Investigated as part of the TOML final-state bundle. Not landed in the conservative bugfix branch because the final TOML state depends on adjacent monitor rebinding, mouse-warp, quake geometry, and capability-profile changes outside a narrow config-file port.
+Backport commit: not landed
+
+Commit: 5fce6d9433cebfcb048b7e7915ffd03719ed35b9
+Original subject: config: switch canonical settings persistence to TOML
+Touched Swift files:
+- Package.swift
+- Sources/OmniWM/Core/Config/CanonicalTOMLConfig.swift
+- Sources/OmniWM/Core/Config/SettingsFilePersistence.swift
+- Sources/OmniWM/Core/Config/SettingsTOMLCodec.swift
+- Tests/OmniWMTests/SettingsTOMLCodecTests.swift
+- Tests/OmniWMTests/Fixtures/canonical-settings.toml
+Touched Zig/build files:
+- Package.swift keeps COmniWMKernels in the post-Zig OmniWM target dependency list
+Bug reproducible on 6fde9b9? no; this is a settings persistence migration, not a focused bugfix
+Tests added or updated:
+- SettingsTOMLCodecTests
+- SettingsStoreTests
+- SettingsViewTests
+Action: settings-final-state
+Reason: Investigated with Zig/package linkage stripped locally. Not landed because it is not self-contained without broader post-Zig-era config support code.
+Backport commit: not landed
+
+Commit: 301c9a720464a74311505f023495dd985b2da090
+Original subject: Fix settings.toml live reload for editor saves
+Touched Swift files:
+- Sources/OmniWM/Core/Config/SettingsFilePersistence.swift
+- Sources/OmniWM/UI/SettingsView.swift
+- Tests/OmniWMTests/SettingsStoreTests.swift
+Touched Zig/build files: none
+Bug reproducible on 6fde9b9? not applicable until the TOML settings migration exists
+Tests added or updated:
+- SettingsStoreTests
+Action: settings-final-state
+Reason: Deferred with the settings bundle. The bugfix is relevant only after adopting the final TOML persistence layer.
+Backport commit: not landed
+```
+
 ### `cbceeab7cd41d971c270dff87cfdc1cbf90a1577`
 
 ```text
