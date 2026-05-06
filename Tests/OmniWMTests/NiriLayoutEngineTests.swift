@@ -3922,7 +3922,7 @@ private func makeCenteredCrossMonitorFixture(
         )
     }
 
-    @Test func splitAndExpelColumnCreationUseExplicitDefaultWidth() {
+    @Test func splitUsesExplicitDefaultWidthAndExpelInheritsSourceWidth() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
         engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]
         engine.defaultColumnWidth = 0.7
@@ -3931,6 +3931,8 @@ private func makeCenteredCrossMonitorFixture(
         engine.roots[wsId] = root
 
         let sourceColumn = NiriContainer()
+        sourceColumn.width = .proportion(0.85)
+        sourceColumn.presetWidthIdx = 0
         root.appendChild(sourceColumn)
 
         let movedWindow = NiriWindow(token: makeTestHandle(pid: 31).id)
@@ -3981,8 +3983,196 @@ private func makeCenteredCrossMonitorFixture(
         }
 
         #expect(expelled)
-        #expect(columnsAfterExpel[0].width == .proportion(0.7))
-        #expect(columnsAfterExpel[0].presetWidthIdx == nil)
+        #expect(columnsAfterExpel[0].width == .proportion(0.85))
+        #expect(columnsAfterExpel[0].presetWidthIdx == 0)
+    }
+
+    @Test func expelWindowCopiesFullWidthRestoreState() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let wsId = UUID()
+        let root = NiriRoot(workspaceId: wsId)
+        engine.roots[wsId] = root
+
+        let sourceColumn = NiriContainer()
+        sourceColumn.width = .fixed(520)
+        sourceColumn.cachedWidth = 1200
+        sourceColumn.isFullWidth = true
+        sourceColumn.savedWidth = .fixed(520)
+        sourceColumn.hasManualSingleWindowWidthOverride = true
+        root.appendChild(sourceColumn)
+
+        let expelledWindow = NiriWindow(token: makeTestHandle(pid: 34).id)
+        let stationaryWindow = NiriWindow(token: makeTestHandle(pid: 35).id)
+        sourceColumn.appendChild(expelledWindow)
+        sourceColumn.appendChild(stationaryWindow)
+        engine.tokenToNode[expelledWindow.token] = expelledWindow
+        engine.tokenToNode[stationaryWindow.token] = stationaryWindow
+
+        var state = ViewportState()
+        let expelled = engine.expelWindow(
+            expelledWindow,
+            to: .right,
+            in: wsId,
+            state: &state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 900),
+            gaps: 8
+        )
+
+        let columns = engine.columns(in: wsId)
+        guard columns.count == 2 else {
+            Issue.record("Expected expel operation to create a second column")
+            return
+        }
+
+        let expelledColumn = columns[1]
+        #expect(expelled)
+        #expect(expelledColumn.width == .fixed(520))
+        #expect(expelledColumn.savedWidth == .fixed(520))
+        #expect(expelledColumn.isFullWidth)
+        #expect(expelledColumn.hasManualSingleWindowWidthOverride)
+        #expect(abs(expelledColumn.cachedWidth - 1200) < 0.001)
+    }
+
+    @Test func expelWindowCopiesDesiredWidthButRecomputesCachedWidthFromConstraints() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let wsId = UUID()
+        let root = NiriRoot(workspaceId: wsId)
+        engine.roots[wsId] = root
+
+        let sourceColumn = NiriContainer()
+        sourceColumn.width = .fixed(1000)
+        sourceColumn.cachedWidth = 1000
+        root.appendChild(sourceColumn)
+
+        let expelledWindow = NiriWindow(token: makeTestHandle(pid: 36).id)
+        expelledWindow.constraints = WindowSizeConstraints(
+            minSize: CGSize(width: 1, height: 1),
+            maxSize: CGSize(width: 600, height: 0),
+            isFixed: false
+        )
+        let stationaryWindow = NiriWindow(token: makeTestHandle(pid: 37).id)
+        sourceColumn.appendChild(expelledWindow)
+        sourceColumn.appendChild(stationaryWindow)
+        engine.tokenToNode[expelledWindow.token] = expelledWindow
+        engine.tokenToNode[stationaryWindow.token] = stationaryWindow
+
+        var state = ViewportState()
+        let expelled = engine.expelWindow(
+            expelledWindow,
+            to: .right,
+            in: wsId,
+            state: &state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1600, height: 900),
+            gaps: 8
+        )
+
+        let columns = engine.columns(in: wsId)
+        guard columns.count == 2 else {
+            Issue.record("Expected expel operation to create a second column")
+            return
+        }
+
+        let expelledColumn = columns[1]
+        #expect(expelled)
+        #expect(expelledColumn.width == .fixed(1000))
+        #expect(abs(expelledColumn.cachedWidth - 600) < 0.001)
+    }
+
+    @Test func consumeWindowPreservesTargetColumnWidthAndResetsMovedWindowSizing() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let wsId = UUID()
+        let root = NiriRoot(workspaceId: wsId)
+        engine.roots[wsId] = root
+
+        let sourceColumn = NiriContainer()
+        sourceColumn.width = .fixed(900)
+        sourceColumn.cachedWidth = 900
+        let targetColumn = NiriContainer()
+        targetColumn.width = .proportion(0.4)
+        targetColumn.presetWidthIdx = 2
+        targetColumn.cachedWidth = 480
+        root.appendChild(sourceColumn)
+        root.appendChild(targetColumn)
+
+        let consumedWindow = NiriWindow(token: makeTestHandle(pid: 38).id)
+        consumedWindow.height = .fixed(300)
+        consumedWindow.windowWidth = .fixed(240)
+        consumedWindow.resolvedHeight = 300
+        consumedWindow.resolvedWidth = 240
+        consumedWindow.heightFixedByConstraint = true
+        consumedWindow.widthFixedByConstraint = true
+        let targetWindow = NiriWindow(token: makeTestHandle(pid: 39).id)
+        sourceColumn.appendChild(consumedWindow)
+        targetColumn.appendChild(targetWindow)
+        engine.tokenToNode[consumedWindow.token] = consumedWindow
+        engine.tokenToNode[targetWindow.token] = targetWindow
+
+        var state = ViewportState()
+        state.activeColumnIndex = 0
+        let moved = engine.moveWindow(
+            consumedWindow,
+            direction: .right,
+            in: wsId,
+            state: &state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 900),
+            gaps: 8
+        )
+
+        let columns = engine.columns(in: wsId)
+        #expect(moved)
+        #expect(columns.count == 1)
+        #expect(columns[0] === targetColumn)
+        #expect(targetColumn.width == .proportion(0.4))
+        #expect(targetColumn.presetWidthIdx == 2)
+        #expect(consumedWindow.height == .default)
+        #expect(consumedWindow.windowWidth == .default)
+        #expect(consumedWindow.resolvedHeight == nil)
+        #expect(consumedWindow.resolvedWidth == nil)
+        #expect(!consumedWindow.heightFixedByConstraint)
+        #expect(!consumedWindow.widthFixedByConstraint)
+    }
+
+    @Test func expelWindowResetsMovedWindowSizing() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let wsId = UUID()
+        let root = NiriRoot(workspaceId: wsId)
+        engine.roots[wsId] = root
+
+        let sourceColumn = NiriContainer()
+        sourceColumn.width = .fixed(500)
+        sourceColumn.cachedWidth = 500
+        root.appendChild(sourceColumn)
+
+        let expelledWindow = NiriWindow(token: makeTestHandle(pid: 40).id)
+        expelledWindow.height = .fixed(360)
+        expelledWindow.windowWidth = .fixed(280)
+        expelledWindow.resolvedHeight = 360
+        expelledWindow.resolvedWidth = 280
+        expelledWindow.heightFixedByConstraint = true
+        expelledWindow.widthFixedByConstraint = true
+        let stationaryWindow = NiriWindow(token: makeTestHandle(pid: 41).id)
+        sourceColumn.appendChild(expelledWindow)
+        sourceColumn.appendChild(stationaryWindow)
+        engine.tokenToNode[expelledWindow.token] = expelledWindow
+        engine.tokenToNode[stationaryWindow.token] = stationaryWindow
+
+        var state = ViewportState()
+        let expelled = engine.expelWindow(
+            expelledWindow,
+            to: .right,
+            in: wsId,
+            state: &state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 900),
+            gaps: 8
+        )
+
+        #expect(expelled)
+        #expect(expelledWindow.height == .default)
+        #expect(expelledWindow.windowWidth == .default)
+        #expect(expelledWindow.resolvedHeight == nil)
+        #expect(expelledWindow.resolvedWidth == nil)
+        #expect(!expelledWindow.heightFixedByConstraint)
+        #expect(!expelledWindow.widthFixedByConstraint)
     }
 
     @Test func insertWindowInNewColumnUsesExplicitDefaultWidth() {

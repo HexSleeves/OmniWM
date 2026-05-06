@@ -28,6 +28,26 @@ extension NiriLayoutEngine {
         }
     }
 
+    private func copyColumnWidthState(from sourceColumn: NiriContainer, to targetColumn: NiriContainer) {
+        targetColumn.width = sourceColumn.width
+        targetColumn.presetWidthIdx = sourceColumn.presetWidthIdx
+        targetColumn.isFullWidth = sourceColumn.isFullWidth
+        targetColumn.savedWidth = sourceColumn.savedWidth
+        targetColumn.hasManualSingleWindowWidthOverride = sourceColumn.hasManualSingleWindowWidthOverride
+        targetColumn.cachedWidth = 0
+        targetColumn.widthAnimation = nil
+        targetColumn.targetWidth = nil
+    }
+
+    private func resetMovedWindowColumnLocalSizing(_ window: NiriWindow) {
+        window.height = .default
+        window.windowWidth = .default
+        window.resolvedHeight = nil
+        window.resolvedWidth = nil
+        window.heightFixedByConstraint = false
+        window.widthFixedByConstraint = false
+    }
+
     @discardableResult
     private func moveWindowToColumn(
         _ node: NiriWindow,
@@ -46,6 +66,7 @@ extension NiriLayoutEngine {
             .insertionIndex(in: targetColumn)
             .clamped(to: 0 ... targetColumn.children.count)
         targetColumn.insertChild(node, at: insertedIndex)
+        resetMovedWindowColumnLocalSizing(node)
 
         if sourceWasTabbed, !sourceColumn.children.isEmpty {
             sourceColumn.clampActiveTileIdx()
@@ -484,13 +505,18 @@ extension NiriLayoutEngine {
         currentColumn.adjustActiveTileIdxForRemoval(of: window)
 
         let newColumn = NiriContainer()
-        initializeNewColumnWidth(newColumn, in: workspaceId)
+        copyColumnWidthState(from: currentColumn, to: newColumn)
 
         if direction == .right {
             root.insertAfter(newColumn, reference: currentColumn)
         } else {
             root.insertBefore(newColumn, reference: currentColumn)
         }
+
+        window.detach()
+        newColumn.appendChild(window)
+        resetMovedWindowColumnLocalSizing(window)
+        window.isHiddenInTabbedMode = false
 
         if let newColIdx = columnIndex(of: newColumn, in: workspaceId) {
             animateColumnsForAddition(
@@ -502,11 +528,6 @@ extension NiriLayoutEngine {
                 workingAreaWidth: workingFrame.width
             )
         }
-
-        window.detach()
-        newColumn.appendChild(window)
-
-        window.isHiddenInTabbedMode = false
 
         let newCols = columns(in: workspaceId)
         if let newColIdx = columnIndex(of: newColumn, in: workspaceId) {
