@@ -1153,6 +1153,15 @@ private func hasPendingNiriAnimationWork(
             if let niriMonitor = engine.monitor(for: monitor.id) {
                 niriMonitor.animationClock = controller.animationClock
             }
+        }
+
+        refreshResolvedMonitorSettings()
+    }
+
+    func refreshResolvedMonitorSettings() {
+        guard let controller, let engine = controller.niriEngine else { return }
+
+        for monitor in controller.workspaceManager.monitors {
             let resolved = controller.settings.resolvedNiriSettings(for: monitor)
             engine.updateMonitorSettings(resolved, for: monitor.id)
         }
@@ -1179,6 +1188,7 @@ private func hasPendingNiriAnimationWork(
             presetColumnWidths: columnWidthPresets?.map { .proportion($0) },
             defaultColumnWidth: defaultColumnWidth.map { $0.map { CGFloat($0) } }
         )
+        refreshResolvedMonitorSettings()
         controller.layoutRefreshController.requestRelayout(reason: .layoutConfigChanged)
     }
 

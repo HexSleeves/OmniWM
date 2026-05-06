@@ -64,6 +64,24 @@ Reason: Applies without manual edits, touches only Swift/test files, and passes 
 Backport commit: this commit
 ```
 
+### `349247c73bf3f5b1cd84fab5cde8baa25fdb7651`
+
+```text
+Commit: 349247c73bf3f5b1cd84fab5cde8baa25fdb7651
+Original subject: Apply global Niri settings without restart
+Touched Swift files:
+- Sources/OmniWM/Core/Controller/NiriLayoutHandler.swift
+- Sources/OmniWM/Core/Controller/WMController.swift
+- Tests/OmniWMTests/NiriLayoutEngineTests.swift
+Touched Zig/build files: none
+Bug reproducible on 6fde9b9? unknown; source commit adds focused regression coverage for live Niri settings updates
+Tests added or updated:
+- NiriLayoutEngineTests
+Action: direct-dry-run
+Reason: Cherry-pick applies without manual edits, touches only Swift/test files, and passes the staged no-Zig audit.
+Backport commit: this commit
+```
+
 ### `de13d4ccdb0aa683c79fe2fb4badec96bf362a80`
 
 ```text
