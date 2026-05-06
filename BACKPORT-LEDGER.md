@@ -64,6 +64,26 @@ Reason: Applies without manual edits, touches only Swift/test files, and passes 
 Backport commit: this commit
 ```
 
+### `74152463e4c4697043dcc663ee1a03fecb536543`
+
+```text
+Commit: 74152463e4c4697043dcc663ee1a03fecb536543
+Original subject: Fix #234 trackpad gesture crash on Dwindle workspaces
+Touched Swift files:
+- Sources/OmniWM/Core/Controller/MouseEventHandler.swift
+- Sources/OmniWM/Core/Layout/Niri/ViewportState+Gestures.swift
+- Tests/OmniWMTests/MouseEventHandlerTests.swift
+- Tests/OmniWMTests/ViewportGeometryTests.swift
+Touched Zig/build files: none
+Bug reproducible on 6fde9b9? unknown; source commit adds focused regression coverage for unsupported Dwindle gesture routing and invalid gesture geometry
+Tests added or updated:
+- MouseEventHandlerTests
+- ViewportGeometryTests
+Action: direct-dry-run
+Reason: Cherry-pick required Swift-only conflict resolution. The port preserves the legacy snap helper already present on this branch, adds the invalid-geometry gesture guards, and narrows the geometry test file to only the two tests introduced by the source commit.
+Backport commit: this commit
+```
+
 ### `5475c44a32e899beacdd97d150af389dd7e2cbc1`
 
 ```text
