@@ -209,11 +209,6 @@ extension NiriLayoutEngine {
         guard column.children.isEmpty else { return }
 
         column.remove()
-
-        if let root = roots[workspaceId], root.columns.isEmpty {
-            let emptyColumn = NiriContainer()
-            root.appendChild(emptyColumn)
-        }
     }
 
     func normalizeColumnSizes(in workspaceId: WorkspaceDescriptor.ID) {

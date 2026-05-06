@@ -77,6 +77,8 @@ extension NiriLayoutEngine {
             return max(weight, 1)
         case let .fixed(height):
             return max(height, 1)
+        case let .preset(index):
+            return max(CGFloat(index + 1), 1)
         }
     }
 }

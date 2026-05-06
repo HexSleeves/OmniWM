@@ -10,6 +10,8 @@ enum ColumnDisplay: Equatable {
 enum SizingMode: Equatable {
     case normal
 
+    case maximized
+
     case fullscreen
 }
 
@@ -43,10 +45,12 @@ enum WeightedSize: Equatable {
 
     case fixed(CGFloat)
 
+    case preset(Int)
+
     var weight: CGFloat {
         switch self {
         case let .auto(w): w
-        case .fixed: 0
+        case .fixed, .preset: 0
         }
     }
 
@@ -58,6 +62,11 @@ enum WeightedSize: Equatable {
     var isFixed: Bool {
         if case .fixed = self { return true }
         return false
+    }
+
+    var presetIndex: Int? {
+        if case let .preset(index) = self { return index }
+        return nil
     }
 
     static let `default` = WeightedSize.auto(weight: 1.0)
@@ -683,7 +692,7 @@ class NiriWindow: NiriNode {
         get {
             switch height {
             case let .auto(weight): weight
-            case .fixed: 1.0
+            case .fixed, .preset: 1.0
             }
         }
         set {
@@ -694,19 +703,23 @@ class NiriWindow: NiriNode {
     var heightWeight: CGFloat {
         switch height {
         case let .auto(weight): weight
-        case .fixed: 1.0
+        case .fixed, .preset: 1.0
         }
     }
 
     var widthWeight: CGFloat {
         switch windowWidth {
         case let .auto(weight): weight
-        case .fixed: 1.0
+        case .fixed, .preset: 1.0
         }
     }
 
     var isFullscreen: Bool {
         sizingMode == .fullscreen
+    }
+
+    var isMaximized: Bool {
+        sizingMode == .maximized
     }
 
     var handle: WindowHandle { WindowHandle(id: token) }

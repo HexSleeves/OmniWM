@@ -154,9 +154,6 @@ final class NiriLayoutEngine {
         }
         let root = NiriRoot(workspaceId: workspaceId)
         roots[workspaceId] = root
-
-        let initialColumn = NiriContainer()
-        root.appendChild(initialColumn)
         return root
     }
 
@@ -241,7 +238,7 @@ final class NiriLayoutEngine {
         let windows = column.windowNodes
         guard windows.count == 1,
               let window = windows.first,
-              window.sizingMode != .fullscreen
+              window.sizingMode == .normal
         else {
             return nil
         }

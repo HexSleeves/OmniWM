@@ -253,7 +253,7 @@ extension NiriLayoutEngine {
                 renderedContainerRect = visibilityRect
             case let .hidden(hiddenEdge):
                 for window in containerWindowNodes[idx] {
-                    if window.sizingMode != .fullscreen {
+                    if window.sizingMode != .fullscreen, window.sizingMode != .maximized {
                         hiddenHandles[window.token] = hiddenEdge.encodedHideSide
                     }
                 }
@@ -766,7 +766,7 @@ extension NiriLayoutEngine {
             let renderedBaseFrame: CGRect
             let resolvedSpan: CGFloat
             switch sizingMode {
-            case .fullscreen:
+            case .fullscreen, .maximized:
                 frame = fullscreenRect.roundedToPhysicalPixels(scale: scale)
                 renderedBaseFrame = renderedFullscreenRect
                 resolvedSpan = switch orientation {
@@ -808,7 +808,7 @@ extension NiriLayoutEngine {
 
             let animatedFrame: CGRect
             switch sizingMode {
-            case .fullscreen:
+            case .fullscreen, .maximized:
                 animatedFrame = renderedBaseFrame.roundedToPhysicalPixels(scale: scale)
             case .normal:
                 let windowOffset = windowRenderOffsets[i]
@@ -845,7 +845,7 @@ extension NiriLayoutEngine {
                 case let .fixed(h):
                     isFixed = true
                     fixedValue = h
-                case .auto:
+                case .auto, .preset:
                     isFixed = false
                     fixedValue = nil
                 }
@@ -865,7 +865,7 @@ extension NiriLayoutEngine {
                 case let .fixed(w):
                     isFixed = true
                     fixedValue = w
-                case .auto:
+                case .auto, .preset:
                     isFixed = false
                     fixedValue = nil
                 }

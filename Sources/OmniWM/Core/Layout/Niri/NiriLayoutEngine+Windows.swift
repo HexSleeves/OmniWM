@@ -130,14 +130,8 @@ extension NiriLayoutEngine {
             column.remove()
 
             if let root {
-                let cols = root.columns
-                if cols.isEmpty {
-                    let emptyColumn = NiriContainer()
-                    root.appendChild(emptyColumn)
-                } else {
-                    for col in cols {
-                        col.cachedWidth = 0
-                    }
+                for col in root.columns {
+                    col.cachedWidth = 0
                 }
             }
         }

@@ -1931,14 +1931,14 @@ private func makeCenteredCrossMonitorFixture(
             resolvedSettings: resolvedSettings(for: engine, maxWindowsPerColumn: 2)
         )
 
-        guard let root = engine.root(for: wsId),
-              let leftColumn = root.columns.first
-        else {
+        guard let root = engine.root(for: wsId) else {
             Issue.record("Expected mapped workspace root for consume override test")
             return
         }
 
+        let leftColumn = NiriContainer()
         let rightColumn = NiriContainer()
+        root.appendChild(leftColumn)
         root.appendChild(rightColumn)
         assignFixedWidths(root.columns)
 
@@ -1978,14 +1978,14 @@ private func makeCenteredCrossMonitorFixture(
         let monitor = makeTestMonitor(displayId: 602, name: "GlobalOnly", x: 0)
         attachWorkspace(wsId, to: monitor, engine: engine)
 
-        guard let root = engine.root(for: wsId),
-              let leftColumn = root.columns.first
-        else {
+        guard let root = engine.root(for: wsId) else {
             Issue.record("Expected mapped workspace root for consume fallback test")
             return
         }
 
+        let leftColumn = NiriContainer()
         let rightColumn = NiriContainer()
+        root.appendChild(leftColumn)
         root.appendChild(rightColumn)
         assignFixedWidths(root.columns)
 
@@ -2218,14 +2218,14 @@ private func makeCenteredCrossMonitorFixture(
             resolvedSettings: resolvedSettings(for: engine, infiniteLoop: true)
         )
 
-        guard let root = engine.root(for: wsId),
-              let leftColumn = root.columns.first
-        else {
+        guard let root = engine.root(for: wsId) else {
             Issue.record("Expected mapped workspace root for infinite-loop override test")
             return
         }
 
+        let leftColumn = NiriContainer()
         let rightColumn = NiriContainer()
+        root.appendChild(leftColumn)
         root.appendChild(rightColumn)
         assignFixedWidths(root.columns)
 
