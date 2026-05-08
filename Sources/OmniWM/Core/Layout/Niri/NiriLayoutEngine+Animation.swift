@@ -338,7 +338,11 @@ extension NiriLayoutEngine {
         let targetY: CGFloat
         let targetHeight: CGFloat
 
-        let fallbackHeight = max(1, (availableHeight - gaps * CGFloat(windowNodes.count + 1)) / CGFloat(windowNodes.count))
+        let fallbackHeight: CGFloat = if windowNodes.count == 1 || column.isTabbed {
+            max(1, availableHeight - gaps * 2)
+        } else {
+            max(1, (availableHeight - gaps * CGFloat(windowNodes.count + 1)) / CGFloat(windowNodes.count))
+        }
         if windowNodes.count == 1 || column.isTabbed {
             targetY = contentY + gaps
             targetHeight = windowNodes[windowIndex].resolvedHeight ?? fallbackHeight

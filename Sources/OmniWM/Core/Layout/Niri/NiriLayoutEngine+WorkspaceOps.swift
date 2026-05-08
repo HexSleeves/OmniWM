@@ -65,7 +65,7 @@ extension NiriLayoutEngine {
     ) -> WorkspaceMoveResult? {
         guard sourceWorkspaceId != targetWorkspaceId else { return nil }
 
-        guard let sourceRoot = roots[sourceWorkspaceId],
+        guard roots[sourceWorkspaceId] != nil,
               columnIndex(of: column, in: sourceWorkspaceId) != nil
         else {
             return nil
@@ -88,11 +88,6 @@ extension NiriLayoutEngine {
         column.detach()
 
         targetRoot.appendChild(column)
-
-        if sourceRoot.columns.isEmpty {
-            let emptyColumn = NiriContainer()
-            sourceRoot.appendChild(emptyColumn)
-        }
 
         sourceState.selectedNodeId = fallbackSelection
 

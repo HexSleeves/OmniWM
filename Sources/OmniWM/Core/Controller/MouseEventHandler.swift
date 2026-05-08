@@ -1075,6 +1075,7 @@ final class MouseEventHandler {
             if let steps = vstate.updateGesture(
                 deltaPixels: delta,
                 timestamp: timestamp,
+                isTrackpad: isTrackpad,
                 columns: columns,
                 gap: gap,
                 viewportWidth: viewportWidth
@@ -1124,6 +1125,8 @@ final class MouseEventHandler {
         let insetFrame = controller.insetWorkingFrame(for: monitor)
         let columns = engine.columns(in: wsId)
         let gap = CGFloat(controller.workspaceManager.gaps)
+        let scale = NSScreen.screens.first(where: { $0.displayId == monitor.displayId })?
+            .backingScaleFactor ?? 2.0
 
         controller.workspaceManager.withNiriViewportState(for: wsId) { endState in
             endState.endGesture(
@@ -1131,8 +1134,13 @@ final class MouseEventHandler {
                 gap: gap,
                 viewportWidth: insetFrame.width,
                 motion: controller.motionPolicy.snapshot(),
+                isTrackpad: true,
+                snapToColumn: false,
                 centerMode: engine.centerFocusedColumn,
-                alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+                alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn,
+                workingArea: insetFrame,
+                viewFrame: monitor.frame,
+                scale: scale
             )
         }
         controller.layoutRefreshController.startScrollAnimation(for: wsId)

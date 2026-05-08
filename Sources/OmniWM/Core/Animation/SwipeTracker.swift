@@ -13,19 +13,21 @@ final class SwipeTracker {
     private(set) var position: Double = 0
 
     func push(delta: Double, timestamp: TimeInterval) {
+        if let last = history.last, timestamp < last.timestamp {
+            return
+        }
+
         position += delta
         history.append(SwipeEvent(delta: delta, timestamp: timestamp))
         trimHistory(currentTime: timestamp)
     }
 
     func velocity() -> Double {
-        guard history.count >= 2 else { return 0 }
+        guard let first = history.first, let last = history.last else { return 0 }
 
-        let firstTime = history.first!.timestamp
-        let lastTime = history.last!.timestamp
-        let totalTime = lastTime - firstTime
+        let totalTime = last.timestamp - first.timestamp
 
-        guard totalTime > 0.001 else { return 0 }
+        guard totalTime != 0 else { return 0 }
 
         let totalDelta = history.reduce(0.0) { $0 + $1.delta }
         return totalDelta / totalTime
@@ -33,8 +35,6 @@ final class SwipeTracker {
 
     func projectedEndPosition() -> Double {
         let v = velocity()
-        guard abs(v) > 0.001 else { return position }
-
         let coeff = 1000.0 * log(Self.decelerationRate)
         return position - v / coeff
     }

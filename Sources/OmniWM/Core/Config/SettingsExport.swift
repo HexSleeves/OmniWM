@@ -226,13 +226,25 @@ extension SettingsExport {
         encoder: JSONEncoder = Self.makeEncoder()
     ) throws -> Data {
         let data = try encoder.encode(self)
-        guard mode == .compact else { return data }
+        guard var currentDict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return data
+        }
+        if niriDefaultColumnWidth == nil {
+            currentDict["niriDefaultColumnWidth"] = NSNull()
+        }
+        let fullData = try JSONSerialization.data(
+            withJSONObject: currentDict,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        guard mode == .compact else { return fullData }
 
         let defaultsData = try encoder.encode(defaults)
-        guard let currentDict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let defaultsDict = try JSONSerialization.jsonObject(with: defaultsData) as? [String: Any]
+        guard var defaultsDict = try JSONSerialization.jsonObject(with: defaultsData) as? [String: Any]
         else {
-            return data
+            return fullData
+        }
+        if defaults.niriDefaultColumnWidth == nil {
+            defaultsDict["niriDefaultColumnWidth"] = NSNull()
         }
 
         var filtered: [String: Any] = ["version": version]

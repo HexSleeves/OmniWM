@@ -159,7 +159,7 @@ struct ViewportState {
 
     var activatePrevColumnOnRemoval: CGFloat?
 
-    let springConfig: SpringConfig = .snappy
+    let springConfig: SpringConfig = .niriHorizontalViewMovement
 
     var animationClock: AnimationClock?
 

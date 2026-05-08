@@ -1562,7 +1562,7 @@ private func makeCenteredCrossMonitorFixture(
         #expect(abs(outputs[2].value - 400) < 0.001)
     }
 
-    @Test func solverFixedOverflowDoesNotOverallocateAutoWindows() {
+    @Test func solverFixedOverflowClampsFixedWindowAndPreservesAutoMinimum() {
         let outputs = NiriAxisSolver.solve(
             windows: [
                 .init(
@@ -1589,11 +1589,11 @@ private func makeCenteredCrossMonitorFixture(
         )
 
         #expect(outputs.count == 2)
-        #expect(abs(outputs[0].value - 80) < 0.001)
+        #expect(abs(outputs[0].value - 49) < 0.001)
         #expect(outputs[0].wasConstrained == true)
         #expect(outputs[1].value == 1)
         #expect(outputs[1].wasConstrained == false)
-        #expect(abs(outputs.map(\.value).reduce(0, +) - 81) < 0.001)
+        #expect(abs(outputs.map(\.value).reduce(0, +) - 50) < 0.001)
     }
 
     @Test func columnWidthDoesNotShrinkBelowRequiredFixedChildWidth() {
@@ -1615,6 +1615,84 @@ private func makeCenteredCrossMonitorFixture(
         column.resolveAndCacheWidth(workingAreaWidth: 1200, gaps: 0)
 
         #expect(abs(column.cachedWidth - 700) < 0.001)
+    }
+
+    @Test func tabbedColumnUsesOnlyOuterGapsForSharedTileFrame() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 1)
+        let workspaceId = UUID()
+        let root = NiriRoot(workspaceId: workspaceId)
+        engine.roots[workspaceId] = root
+
+        let column = NiriContainer()
+        column.displayMode = .tabbed
+        root.appendChild(column)
+
+        let bottomWindow = NiriWindow(token: makeTestHandle(pid: 200).id)
+        let topWindow = NiriWindow(token: makeTestHandle(pid: 201).id)
+        column.appendChild(bottomWindow)
+        column.appendChild(topWindow)
+        engine.tokenToNode[bottomWindow.token] = bottomWindow
+        engine.tokenToNode[topWindow.token] = topWindow
+
+        let monitor = makeLayoutPlanTestMonitor(width: 1200, height: 900)
+        let gaps = LayoutGaps(horizontal: 8, vertical: 8)
+        let layout = engine.calculateCombinedLayoutWithVisibility(
+            in: workspaceId,
+            monitor: monitor,
+            gaps: gaps,
+            state: ViewportState()
+        )
+
+        guard let bottomFrame = layout.frames[bottomWindow.token],
+              let topFrame = layout.frames[topWindow.token]
+        else {
+            Issue.record("Expected both tabbed windows to receive frames")
+            return
+        }
+
+        #expect(abs(bottomFrame.minY - 8) < 0.001)
+        #expect(abs(topFrame.minY - 8) < 0.001)
+        #expect(abs(bottomFrame.height - 884) < 0.001)
+        #expect(abs(topFrame.height - 884) < 0.001)
+    }
+
+    @Test func verticalTabbedColumnUsesOnlyOuterGapsForSharedTileFrame() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 1)
+        let workspaceId = UUID()
+        let root = NiriRoot(workspaceId: workspaceId)
+        engine.roots[workspaceId] = root
+
+        let column = NiriContainer()
+        column.displayMode = .tabbed
+        root.appendChild(column)
+
+        let bottomWindow = NiriWindow(token: makeTestHandle(pid: 202).id)
+        let topWindow = NiriWindow(token: makeTestHandle(pid: 203).id)
+        column.appendChild(bottomWindow)
+        column.appendChild(topWindow)
+        engine.tokenToNode[bottomWindow.token] = bottomWindow
+        engine.tokenToNode[topWindow.token] = topWindow
+
+        let monitor = makeLayoutPlanTestMonitor(width: 900, height: 1200)
+        let gaps = LayoutGaps(horizontal: 8, vertical: 8)
+        let layout = engine.calculateCombinedLayoutWithVisibility(
+            in: workspaceId,
+            monitor: monitor,
+            gaps: gaps,
+            state: ViewportState()
+        )
+
+        guard let bottomFrame = layout.frames[bottomWindow.token],
+              let topFrame = layout.frames[topWindow.token]
+        else {
+            Issue.record("Expected both vertical tabbed windows to receive frames")
+            return
+        }
+
+        #expect(abs(bottomFrame.minX - 8) < 0.001)
+        #expect(abs(topFrame.minX - 8) < 0.001)
+        #expect(abs(bottomFrame.width - 884) < 0.001)
+        #expect(abs(topFrame.width - 884) < 0.001)
     }
 
     @Test func syncWindowsIdempotency() {
@@ -2975,6 +3053,35 @@ private func makeCenteredCrossMonitorFixture(
         #expect(moved != nil)
         #expect(targetColumn.width == .proportion(0.7))
         #expect(targetColumn.presetWidthIdx == nil)
+    }
+
+    @Test func moveLastColumnToWorkspaceLeavesSourceWorkspaceEmpty() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let sourceWorkspaceId = UUID()
+        let targetWorkspaceId = UUID()
+        let window = engine.addWindow(handle: makeTestHandle(pid: 90), to: sourceWorkspaceId, afterSelection: nil)
+
+        guard let column = engine.column(of: window) else {
+            Issue.record("Expected source column before workspace move")
+            return
+        }
+
+        var sourceState = ViewportState()
+        var targetState = ViewportState()
+
+        let moved = engine.moveColumnToWorkspace(
+            column,
+            from: sourceWorkspaceId,
+            to: targetWorkspaceId,
+            sourceState: &sourceState,
+            targetState: &targetState
+        )
+
+        #expect(moved != nil)
+        #expect(engine.columns(in: sourceWorkspaceId).isEmpty)
+        #expect(engine.columns(in: targetWorkspaceId).count == 1)
+        #expect(sourceState.selectedNodeId == nil)
+        #expect(targetState.selectedNodeId == window.id)
     }
 
     @Test func workspaceSwitchAnimationUsesSnapshotOrdering() {

@@ -779,13 +779,13 @@ extension NiriLayoutEngine {
                 case .horizontal:
                     frame = CGRect(
                         x: contentRect.origin.x,
-                        y: isTabbed ? contentRect.origin.y : pos,
+                        y: pos,
                         width: contentRect.width,
                         height: span
                     ).roundedToPhysicalPixels(scale: scale)
                 case .vertical:
                     frame = CGRect(
-                        x: isTabbed ? contentRect.origin.x : pos,
+                        x: pos,
                         y: contentRect.origin.y,
                         width: span,
                         height: contentRect.height

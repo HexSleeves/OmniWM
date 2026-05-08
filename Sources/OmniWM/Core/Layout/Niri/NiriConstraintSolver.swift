@@ -1,6 +1,9 @@
 import Foundation
 
 enum NiriAxisSolver {
+    @usableFromInline
+    static let minimumRenderableSpan: CGFloat = 1
+
     struct Input {
         let weight: CGFloat
         let minConstraint: CGFloat
@@ -25,13 +28,13 @@ enum NiriAxisSolver {
     ) -> [Output] {
         guard !windows.isEmpty else { return [] }
 
-        let totalGaps = gapSize * CGFloat(windows.count + 1)
-        let usableSpace = max(0, availableSpace - totalGaps)
-
         if isTabbed {
+            let usableSpace = max(0, availableSpace - gapSize * 2)
             return solveTabbed(windows: windows, availableSpace: usableSpace)
         }
 
+        let totalGaps = gapSize * CGFloat(windows.count + 1)
+        let usableSpace = max(0, availableSpace - totalGaps)
         let epsilon: CGFloat = 0.001
         let minConstraints = windows.map { sanitizedMinimum($0.minConstraint) }
         let maxConstraints = windows.map { window in
@@ -39,7 +42,7 @@ enum NiriAxisSolver {
         }
         let weights = windows.map { sanitizedNonNegative($0.weight) }
 
-        let fixedValues: [CGFloat?] = windows.enumerated().map { index, window in
+        var fixedValues: [CGFloat?] = windows.enumerated().map { index, window in
             if window.hasFixedValue, let fixedValue = window.fixedValue {
                 return clampedFixedValue(
                     fixedValue,
@@ -57,9 +60,27 @@ enum NiriAxisSolver {
             return nil
         }
 
-        let fixedSum = fixedValues.compactMap(\.self).reduce(0, +)
-        let remainingSpace = max(0, usableSpace - fixedSum)
+        var fixedWasScaled = [Bool](repeating: false, count: windows.count)
+        var fixedSum = fixedValues.compactMap(\.self).reduce(0, +)
         let nonFixedIndices = windows.indices.filter { fixedValues[$0] == nil }
+        let fixedBudget = max(
+            0,
+            usableSpace - nonFixedIndices.reduce(CGFloat.zero) { partialResult, index in
+                partialResult + max(Self.minimumRenderableSpan, minConstraints[index])
+            }
+        )
+        if fixedSum > fixedBudget, fixedSum > epsilon {
+            // Preserve room for every auto tile's render floor, even when that scales fixed tiles below their min.
+            let scale = fixedBudget / fixedSum
+            for index in fixedValues.indices {
+                guard let fixedValue = fixedValues[index] else { continue }
+                let scaledValue = max(0, fixedValue * scale)
+                fixedWasScaled[index] = abs(scaledValue - fixedValue) > epsilon
+                fixedValues[index] = scaledValue
+            }
+            fixedSum = fixedValues.compactMap(\.self).reduce(0, +)
+        }
+        let remainingSpace = max(0, usableSpace - fixedSum)
         var values = [CGFloat](repeating: 0, count: windows.count)
 
         for (index, fixedValue) in fixedValues.enumerated() {
@@ -67,7 +88,7 @@ enum NiriAxisSolver {
             values[index] = fixedValue
         }
 
-        var pendingAutoIndices = Set(nonFixedIndices)
+        var pendingAutoIndices = nonFixedIndices
         var pinnedMinimumSum: CGFloat = 0
         while !pendingAutoIndices.isEmpty {
             let distributableSpace = max(0, remainingSpace - pinnedMinimumSum)
@@ -88,7 +109,7 @@ enum NiriAxisSolver {
             if let pinnedIndex {
                 values[pinnedIndex] = minConstraints[pinnedIndex]
                 pinnedMinimumSum += minConstraints[pinnedIndex]
-                pendingAutoIndices.remove(pinnedIndex)
+                pendingAutoIndices.removeAll { $0 == pinnedIndex }
                 continue
             }
 
@@ -104,8 +125,8 @@ enum NiriAxisSolver {
             let isAtMaximum = fixedValues[index] != nil &&
                 (maxConstraints[index].map { abs(values[index] - $0) <= epsilon } ?? false)
             return Output(
-                value: max(1, values[index]),
-                wasConstrained: window.isConstraintFixed || isAtMinimum || isAtMaximum
+                value: max(Self.minimumRenderableSpan, values[index]),
+                wasConstrained: window.isConstraintFixed || fixedWasScaled[index] || isAtMinimum || isAtMaximum
             )
         }
     }
@@ -132,7 +153,7 @@ enum NiriAxisSolver {
             sharedValue = min(sharedValue, max(maxC, maxMinConstraint))
         }
 
-        sharedValue = max(1, sharedValue)
+        sharedValue = max(Self.minimumRenderableSpan, sharedValue)
 
         return windows.map { window in
             let wasConstrained = sharedValue == window.minConstraint ||

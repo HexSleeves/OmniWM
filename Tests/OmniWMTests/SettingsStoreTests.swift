@@ -755,6 +755,40 @@ private func makePersistedRestoreCatalogFixture(
         #expect((json["animationsEnabled"] as? Bool) == false)
     }
 
+    @Test func fullExportIncludesAutoDefaultColumnWidthAsNull() throws {
+        var export = SettingsExport.defaults()
+        export.niriDefaultColumnWidth = nil
+
+        let data = try export.exportData(mode: .full)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            Issue.record("Expected full export to produce a JSON object")
+            return
+        }
+
+        #expect(json["niriDefaultColumnWidth"] is NSNull)
+
+        let mergedData = try SettingsExport.mergedImportData(from: data)
+        let decoded = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
+        #expect(decoded.niriDefaultColumnWidth == nil)
+    }
+
+    @Test func compactExportIncludesAutoDefaultColumnWidthAsNull() throws {
+        var export = SettingsExport.defaults()
+        export.niriDefaultColumnWidth = nil
+
+        let data = try export.exportData(mode: .compact)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            Issue.record("Expected compact export to produce a JSON object")
+            return
+        }
+
+        #expect(json["niriDefaultColumnWidth"] is NSNull)
+
+        let mergedData = try SettingsExport.mergedImportData(from: data)
+        let decoded = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
+        #expect(decoded.niriDefaultColumnWidth == nil)
+    }
+
     @Test func compactExportIncludesReadableAdditionalPersistedSettings() throws {
         var export = SettingsExport.defaults()
         export.focusFollowsWindowToMonitor = true
