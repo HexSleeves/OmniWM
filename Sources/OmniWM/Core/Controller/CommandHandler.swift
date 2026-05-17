@@ -181,7 +181,7 @@ final class CommandHandler {
         case .rescueOffscreenWindows:
             _ = controller.rescueOffscreenWindows()
         case .toggleFocusedWindowFloating:
-            controller.toggleFocusedWindowFloating()
+            return controller.toggleFocusedWindowFloating()
         case .assignFocusedWindowToScratchpad:
             return controller.assignFocusedWindowToScratchpad()
         case .toggleScratchpadWindow:

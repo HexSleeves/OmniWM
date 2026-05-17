@@ -7,6 +7,19 @@ struct WindowFocusOperations {
     let activateApp: (pid_t) -> Void
     let focusSpecificWindow: (pid_t, UInt32, AXUIElement) -> Void
     let raiseWindow: (AXUIElement) -> Void
+    let orderWindow: (UInt32) -> Void
+
+    init(
+        activateApp: @escaping (pid_t) -> Void,
+        focusSpecificWindow: @escaping (pid_t, UInt32, AXUIElement) -> Void,
+        raiseWindow: @escaping (AXUIElement) -> Void,
+        orderWindow: @escaping (UInt32) -> Void = { _ in }
+    ) {
+        self.activateApp = activateApp
+        self.focusSpecificWindow = focusSpecificWindow
+        self.raiseWindow = raiseWindow
+        self.orderWindow = orderWindow
+    }
 
     static let live = WindowFocusOperations(
         activateApp: { pid in
@@ -19,6 +32,9 @@ struct WindowFocusOperations {
         },
         raiseWindow: { element in
             AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+        },
+        orderWindow: { windowId in
+            SkyLight.shared.orderWindow(windowId, relativeTo: 0, order: .above)
         }
     )
 }
@@ -139,7 +155,10 @@ final class WMController {
     @ObservationIgnored
     private(set) lazy var serviceLifecycleManager = ServiceLifecycleManager(controller: self)
     @ObservationIgnored
-    private(set) lazy var windowActionHandler = WindowActionHandler(controller: self)
+    private(set) lazy var windowActionHandler = WindowActionHandler(
+        controller: self,
+        orderWindow: windowFocusOperations.orderWindow
+    )
     @ObservationIgnored
     private lazy var clipboardHistoryService = ClipboardHistoryService(configuration: clipboardHistoryConfiguration())
     @ObservationIgnored
@@ -1221,13 +1240,17 @@ final class WMController {
         preferredMonitor: Monitor? = nil
     ) -> Bool {
         guard let entry = workspaceManager.entry(for: token) else { return false }
-        if workspaceManager.manualLayoutOverride(for: token) != .forceFloat {
-            workspaceManager.setManualLayoutOverride(.forceFloat, for: token)
-        }
 
         if entry.mode == .floating {
-            return captureVisibleFloatingGeometry(for: token, preferredMonitor: preferredMonitor) != nil
+            guard captureVisibleFloatingGeometry(for: token, preferredMonitor: preferredMonitor) != nil
                 || workspaceManager.floatingState(for: token) != nil
+            else {
+                return false
+            }
+            if workspaceManager.manualLayoutOverride(for: token) != .forceFloat {
+                workspaceManager.setManualLayoutOverride(.forceFloat, for: token)
+            }
+            return true
         }
 
         guard let frame = liveFrame(for: entry) else { return false }
@@ -1243,6 +1266,9 @@ final class WMController {
             referenceMonitor: referenceMonitor,
             restoreToFloating: true
         )
+        if workspaceManager.manualLayoutOverride(for: token) != .forceFloat {
+            workspaceManager.setManualLayoutOverride(.forceFloat, for: token)
+        }
         return true
     }
 
@@ -1864,12 +1890,12 @@ final class WMController {
         )
     }
 
-    func toggleFocusedWindowFloating() {
+    func toggleFocusedWindowFloating() -> ExternalCommandResult {
         let token = focusedManagedTokenForCommand()
         guard let token,
               let entry = workspaceManager.entry(for: token)
         else {
-            return
+            return .notFound
         }
 
         let nextOverride: ManualWindowOverride?
@@ -1880,6 +1906,7 @@ final class WMController {
         }
 
         applyManagedWindowOverride(nextOverride, for: token, entry: entry)
+        return .executed
     }
 
     @discardableResult

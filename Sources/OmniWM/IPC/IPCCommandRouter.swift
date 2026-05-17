@@ -368,13 +368,7 @@ final class IPCCommandRouter {
     }
 
     private func toggleFocusedWindowFloating() -> ExternalCommandResult {
-        guard let token = controller.workspaceManager.focusedToken else { return .notFound }
-        let previousOverride = controller.workspaceManager.manualLayoutOverride(for: token)
-        let previousMode = controller.workspaceManager.windowMode(for: token)
-        _ = controller.commandHandler.performCommand(.toggleFocusedWindowFloating)
-        let currentOverride = controller.workspaceManager.manualLayoutOverride(for: token)
-        let currentMode = controller.workspaceManager.windowMode(for: token)
-        return currentOverride == previousOverride && currentMode == previousMode ? .notFound : .executed
+        controller.commandHandler.performCommand(.toggleFocusedWindowFloating)
     }
 
     private func assignFocusedWindowToScratchpad() -> ExternalCommandResult {

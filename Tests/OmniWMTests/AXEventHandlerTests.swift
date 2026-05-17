@@ -18,6 +18,13 @@ private func makeAXEventSecondaryMonitor() -> Monitor {
     makeLayoutPlanSecondaryTestMonitor(name: "Secondary", x: 1920)
 }
 
+private enum AXEventFocusOperationEvent: Equatable {
+    case order(UInt32)
+    case activate(pid_t)
+    case focus(pid_t, UInt32)
+    case raise
+}
+
 @MainActor
 private func makeAXEventOwnedWindow(
     frame: CGRect = CGRect(x: 80, y: 80, width: 280, height: 180)
@@ -5893,6 +5900,52 @@ private func waitUntilAXEventTest(
         #expect(entry.ruleEffects.minWidth == 510)
         #expect(entry.ruleEffects.minHeight == 410)
         #expect(relayoutReasons == [.axWindowCreated])
+    }
+
+    @Test @MainActor func defaultFloatingCreateWithDegradedAxFactsIsTrackedAndRaised() async {
+        var events: [AXEventFocusOperationEvent] = []
+        let operations = WindowFocusOperations(
+            activateApp: { pid in events.append(.activate(pid)) },
+            focusSpecificWindow: { pid, windowId, _ in events.append(.focus(pid, windowId)) },
+            raiseWindow: { _ in events.append(.raise) },
+            orderWindow: { windowId in events.append(.order(windowId)) }
+        )
+        let controller = makeAXEventTestController(
+            windowFocusOperations: operations,
+            trackedBundleId: "com.itoolab.unlockgo"
+        )
+        let frame = CGRect(x: 120, y: 140, width: 620, height: 420)
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            WindowServerInfo(id: windowId, pid: getpid(), level: 0, frame: frame)
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.frameProvider = { _ in frame }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(
+                bundleId: "com.itoolab.unlockgo",
+                appName: "UnlockGo",
+                title: nil,
+                attributeFetchSucceeded: false
+            )
+        }
+        defer {
+            controller.axEventHandler.frameProvider = nil
+            controller.axEventHandler.windowFactsProvider = nil
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .created(windowId: 825, spaceId: 0)
+        )
+        await waitUntilAXEventTest {
+            controller.workspaceManager.entry(forPid: getpid(), windowId: 825)?.mode == .floating
+                && events == [.order(825), .activate(getpid()), .focus(getpid(), 825), .raise]
+        }
+
+        #expect(controller.workspaceManager.entry(forPid: getpid(), windowId: 825)?.mode == .floating)
+        #expect(events == [.order(825), .activate(getpid()), .focus(getpid(), 825), .raise])
     }
 
     @Test @MainActor func cleanShotCaptureOverlayCreateIsTrackedAsFloating() async {

@@ -212,6 +212,30 @@ private func makeWindowRuleFacts(
         #expect(decision.deferredReason == nil)
     }
 
+    @Test func defaultFloatingRuleAppliesDespiteAttributeFetchFailure() {
+        let engine = WindowRuleEngine()
+
+        let decision = engine.decision(
+            for: makeWindowRuleFacts(
+                bundleId: "com.itoolab.unlockgo",
+                appName: "UnlockGo",
+                attributeFetchSucceeded: false
+            ),
+            token: nil,
+            appFullscreen: false
+        )
+
+        #expect(decision.disposition == .floating)
+        #expect(decision.layoutDecisionKind == .explicitLayout)
+        #expect(decision.trackedMode == .floating)
+        #expect(decision.admissionOutcome == .trackedFloating)
+        #expect(decision.deferredReason == nil)
+        if case .builtInRule("defaultFloatingApp") = decision.source {
+        } else {
+            Issue.record("Expected UnlockGo to use the built-in floating rule")
+        }
+    }
+
     @Test func missingFullscreenButtonFallsBackToTrackedFloating() {
         let engine = WindowRuleEngine()
 

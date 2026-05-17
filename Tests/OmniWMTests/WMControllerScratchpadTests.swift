@@ -92,6 +92,25 @@ private func setScratchpadTestFrame(
         #expect(controller.workspaceManager.windowMode(for: secondToken) == .tiling)
     }
 
+    @Test @MainActor func failedScratchpadAssignmentDoesNotLeaveManualFloatOverride() {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or workspace for scratchpad failure test")
+            return
+        }
+
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 703)
+        _ = controller.workspaceManager.setManagedFocus(token, in: workspaceId, onMonitor: monitor.id)
+
+        #expect(controller.assignFocusedWindowToScratchpad() == .notFound)
+        #expect(controller.workspaceManager.scratchpadToken() == nil)
+        #expect(controller.workspaceManager.hiddenState(for: token) == nil)
+        #expect(controller.workspaceManager.manualLayoutOverride(for: token) == nil)
+        #expect(controller.workspaceManager.windowMode(for: token) == .tiling)
+    }
+
     @Test @MainActor func toggleScratchpadWindowRestoresAndRecapturesFloatingFrame() {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,

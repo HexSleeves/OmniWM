@@ -160,6 +160,31 @@ final class WindowActionHandler {
         makeRaiseAllFloatingPlan() != nil
     }
 
+    @discardableResult
+    func raiseFloatingWindow(_ token: WindowToken) -> Bool {
+        guard let controller,
+              !controller.isLockScreenActive
+        else {
+            return false
+        }
+        if controller.hasStartedServices {
+            guard !controller.isFrontmostAppLockScreen() else { return false }
+        }
+
+        guard let entry = controller.workspaceManager.entry(for: token),
+              entry.mode == .floating,
+              entry.layoutReason == .standard,
+              !controller.workspaceManager.isHiddenInCorner(token),
+              controller.workspaceManager.visibleWorkspaceIds().contains(entry.workspaceId)
+        else {
+            return false
+        }
+
+        orderWindow(UInt32(entry.windowId))
+        controller.focusWindow(token)
+        return true
+    }
+
     private func makeRaiseAllFloatingPlan() -> FloatingWindowRaisePlan? {
         guard let controller else { return nil }
 

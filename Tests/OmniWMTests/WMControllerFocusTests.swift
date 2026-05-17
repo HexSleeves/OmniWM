@@ -1144,6 +1144,25 @@ private func waitForFocusRefresh(on controller: WMController) async {
         #expect(recorder.events.isEmpty)
     }
 
+    @Test @MainActor func raiseFloatingWindowIsNoOpWhileLocked() {
+        let recorder = RaiseAllFloatingRecorder()
+        let (controller, workspaceId, _) = makeFocusTestController(
+            windowFocusOperations: makeRaiseAllFloatingOperations(recorder: recorder)
+        )
+        let handle = addManagedTestWindow(
+            on: controller,
+            pid: 51,
+            windowId: 732,
+            workspaceId: workspaceId,
+            mode: .floating
+        )
+        controller.isLockScreenActive = true
+        let handler = makeRaiseAllFloatingHandler(controller: controller, recorder: recorder)
+
+        #expect(handler.raiseFloatingWindow(handle.id) == false)
+        #expect(recorder.events.isEmpty)
+    }
+
     @Test @MainActor func raiseAllFloatingWindowsIncludesVisibleOwnedUtilityWindows() {
         let recorder = RaiseAllFloatingRecorder()
         let (controller, _, _) = makeFocusTestController(
@@ -1373,7 +1392,7 @@ private func waitForFocusRefresh(on controller: WMController) async {
             onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
         )
 
-        controller.toggleFocusedWindowFloating()
+        #expect(controller.toggleFocusedWindowFloating() == .executed)
         await waitForFocusRefresh(on: controller)
 
         guard let ghosttyEntry = controller.workspaceManager.entry(for: ghosttyHandle) else {
@@ -1384,5 +1403,18 @@ private func waitForFocusRefresh(on controller: WMController) async {
         #expect(ghosttyEntry.mode == .tiling)
         #expect(controller.workspaceManager.manualLayoutOverride(for: ghosttyHandle.id) == .forceTile)
         #expect(controller.workspaceManager.tiledEntries(in: workspaceId).contains { $0.token == ghosttyHandle.id })
+    }
+
+    @Test @MainActor func toggleFocusedWindowFloatingReturnsNotFoundWithoutFocusedTarget() {
+        let operations = WindowFocusOperations(
+            activateApp: { _ in },
+            focusSpecificWindow: { _, _, _ in },
+            raiseWindow: { _ in }
+        )
+        let (controller, _, _) = makeFocusTestController(windowFocusOperations: operations)
+        controller.commandHandler.frontmostAppPidProvider = { nil }
+        controller.commandHandler.frontmostFocusedWindowTokenProvider = { nil }
+
+        #expect(controller.commandHandler.performCommand(.toggleFocusedWindowFloating) == .notFound)
     }
 }

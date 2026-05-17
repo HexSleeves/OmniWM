@@ -758,6 +758,9 @@ final class AXEventHandler: CGSEventDelegate {
         } else {
             scheduleAXContextWarmup(for: trackedEntry.pid)
         }
+        if trackedEntry.mode == .floating {
+            controller.windowActionHandler.raiseFloatingWindow(trackedToken)
+        }
 
         controller.layoutRefreshController.requestRelayout(
             reason: .axWindowCreated,

@@ -511,6 +511,25 @@ private func prepareIPCNiriState(
         #expect(router.handle(.rescueOffscreenWindows) == .notFound)
     }
 
+    @Test func toggleFocusedWindowFloatingReturnsControllerCommandResult() throws {
+        let controller = makeLayoutPlanTestController()
+        let router = makeIPCCommandRouter(for: controller)
+        let workspaceId = try #require(controller.workspaceManager.workspaceId(for: "1", createIfMissing: false))
+        let monitor = try #require(controller.workspaceManager.monitor(for: workspaceId))
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 2_450)
+        _ = controller.workspaceManager.setManagedFocus(token, in: workspaceId, onMonitor: monitor.id)
+
+        #expect(router.handle(.toggleFocusedWindowFloating) == .executed)
+        #expect(controller.workspaceManager.manualLayoutOverride(for: token) == .forceFloat)
+
+        let idleController = makeLayoutPlanTestController()
+        let idleRouter = makeIPCCommandRouter(for: idleController)
+        idleController.commandHandler.frontmostAppPidProvider = { nil }
+        idleController.commandHandler.frontmostFocusedWindowTokenProvider = { nil }
+
+        #expect(idleRouter.handle(.toggleFocusedWindowFloating) == .notFound)
+    }
+
     @Test func scratchpadToggleReturnsExecutedForPendingAsyncReveal() throws {
         let controller = makeLayoutPlanTestController()
         let router = makeIPCCommandRouter(for: controller)
