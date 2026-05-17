@@ -52,6 +52,14 @@ struct NiriCreateFocusTraceEvent: Equatable {
     }
 }
 
+struct WindowCreatePlacementContext: Equatable {
+    let windowId: UInt32
+    let spaceId: UInt64
+    let originWorkspaceId: WorkspaceDescriptor.ID?
+    let originMonitorId: Monitor.ID?
+    let createdAt: Date
+}
+
 extension NiriCreateFocusTraceEvent: CustomStringConvertible {
     var description: String {
         switch kind {
@@ -117,6 +125,7 @@ final class AXEventHandler: CGSEventDelegate {
         let axRef: AXWindowRef
         let ruleEffects: ManagedWindowRuleEffects
         let replacementMetadata: ManagedReplacementMetadata
+        let hasStructuralReplacementWorkspaceMatch: Bool
 
         var bundleId: String? {
             replacementMetadata.bundleId
@@ -215,6 +224,11 @@ final class AXEventHandler: CGSEventDelegate {
         }
     }
 
+    private struct StructuralReplacementMatch {
+        let token: WindowToken
+        let workspaceId: WorkspaceDescriptor.ID
+    }
+
     private static let managedReplacementGraceDelay: Duration = .milliseconds(150)
     private static let nativeFullscreenFollowupDelay: Duration = .seconds(1)
     private static let nativeFullscreenStaleCleanupDelay: Duration = .seconds(
@@ -222,6 +236,7 @@ final class AXEventHandler: CGSEventDelegate {
     )
     private static let stabilizationRetryDelay: Duration = .milliseconds(100)
     private static let createdWindowRetryLimit = 5
+    private static let createPlacementContextTTL: TimeInterval = 15
     private static let activationRetryLimit = 5
     private static let createFocusTraceLimit = 128
     private static let managedReplacementTraceLimit = 128
@@ -233,6 +248,7 @@ final class AXEventHandler: CGSEventDelegate {
     weak var controller: WMController?
     private var deferredCreatedWindowIds: Set<UInt32> = []
     private var deferredCreatedWindowOrder: [UInt32] = []
+    private var createPlacementContextsByWindowId: [UInt32: WindowCreatePlacementContext] = [:]
     private var pendingManagedReplacementBursts: [ManagedReplacementKey: PendingManagedReplacementBurst] = [:]
     private var pendingManagedReplacementTasks: [ManagedReplacementKey: Task<Void, Never>] = [:]
     private var pendingNativeFullscreenFollowupTasks: [WindowToken: Task<Void, Never>] = [:]
@@ -257,6 +273,7 @@ final class AXEventHandler: CGSEventDelegate {
     var frameProvider: ((AXWindowRef) -> CGRect?)?
     var fastFrameProvider: ((AXWindowRef) -> CGRect?)?
     var isFullscreenProvider: ((AXWindowRef) -> Bool)?
+    var spaceDisplayResolver: ((UInt64, [Monitor]) -> CGDirectDisplayID?)?
     var managedReplacementTimeSourceForTests: (() -> TimeInterval)?
     private(set) var debugCounters = DebugCounters()
 
@@ -272,6 +289,7 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     func cleanup() {
+        resetCreatePlacementContextState()
         resetManagedReplacementState()
         resetNativeFullscreenReplacementState()
         resetWindowStabilizationState()
@@ -288,8 +306,8 @@ final class AXEventHandler: CGSEventDelegate {
         guard let controller else { return }
 
         switch event {
-        case let .created(windowId, _):
-            handleCGSWindowCreated(windowId: windowId)
+        case let .created(windowId, spaceId):
+            handleCGSWindowCreated(windowId: windowId, spaceId: spaceId)
 
         case let .destroyed(windowId, _):
             handleCGSWindowDestroyed(windowId: windowId)
@@ -342,7 +360,8 @@ final class AXEventHandler: CGSEventDelegate {
         return controller.isManagedWindowDisplayable(entry.handle)
     }
 
-    private func handleCGSWindowCreated(windowId: UInt32) {
+    private func handleCGSWindowCreated(windowId: UInt32, spaceId: UInt64) {
+        captureCreatePlacementContext(windowId: windowId, spaceId: spaceId)
         recordNiriCreateFocusTrace(.init(kind: .createSeen(windowId: windowId)))
         processCreatedWindow(windowId: windowId)
     }
@@ -357,7 +376,8 @@ final class AXEventHandler: CGSEventDelegate {
         let windowInfo = resolveWindowInfo(windowId)
         guard let candidate = prepareCreateCandidate(
             windowId: windowId,
-            windowInfo: windowInfo
+            windowInfo: windowInfo,
+            createPlacementContext: createPlacementContextsByWindowId[windowId]
         ) else {
             if let windowInfo {
                 _ = scheduleCreatedWindowRetryIfNeeded(
@@ -384,6 +404,7 @@ final class AXEventHandler: CGSEventDelegate {
         resetNativeFullscreenReplacementState()
         resetWindowStabilizationState()
         resetCreatedWindowRetryState()
+        resetCreatePlacementContextState()
         resetActivationRetryState()
         controller?.focusBridge.reset()
         createFocusTrace.removeAll(keepingCapacity: true)
@@ -419,6 +440,69 @@ final class AXEventHandler: CGSEventDelegate {
 
     func managedReplacementTraceSnapshotForTests() -> [ManagedReplacementTraceEvent] {
         managedReplacementTrace
+    }
+
+    func pendingCreatePlacementContext(for windowId: Int) -> WindowCreatePlacementContext? {
+        guard let windowId = UInt32(exactly: windowId) else { return nil }
+        pruneExpiredCreatePlacementContexts()
+        return createPlacementContextsByWindowId[windowId]
+    }
+
+    func discardCreatePlacementContext(for windowId: Int) {
+        guard let windowId = UInt32(exactly: windowId) else { return }
+        discardCreatePlacementContext(windowId: windowId)
+    }
+
+    func structuralReplacementWorkspaceIdForCreate(
+        token: WindowToken,
+        bundleId: String?,
+        mode: TrackedWindowMode,
+        facts: WindowRuleFacts
+    ) -> WorkspaceDescriptor.ID? {
+        structuralReplacementMatch(
+            token: token,
+            bundleId: bundleId,
+            mode: mode,
+            facts: facts
+        )?.workspaceId
+    }
+
+    @discardableResult
+    func rekeyStructuralManagedReplacementIfNeeded(
+        token: WindowToken,
+        windowId: UInt32,
+        axRef: AXWindowRef,
+        bundleId: String?,
+        mode: TrackedWindowMode,
+        facts: WindowRuleFacts
+    ) -> Bool {
+        guard let match = structuralReplacementMatch(
+            token: token,
+            bundleId: bundleId,
+            mode: mode,
+            facts: facts
+        ) else {
+            return false
+        }
+
+        let metadata = makeManagedReplacementMetadata(
+            bundleId: bundleId,
+            workspaceId: match.workspaceId,
+            mode: mode,
+            facts: facts
+        )
+        guard rekeyManagedWindowIdentity(
+            from: match.token,
+            to: token,
+            windowId: windowId,
+            axRef: axRef,
+            managedReplacementMetadata: metadata
+        ) != nil else {
+            return false
+        }
+
+        discardCreatePlacementContext(windowId: windowId)
+        return true
     }
 
     func recordNiriCreateFocusTrace(_ event: NiriCreateFocusTraceEvent) {
@@ -540,6 +624,7 @@ final class AXEventHandler: CGSEventDelegate {
     private func handleCGSWindowDestroyed(windowId: UInt32) {
         AXWindowService.invalidateCachedTitle(windowId: windowId)
         cancelCreatedWindowRetry(windowId: windowId)
+        discardCreatePlacementContext(windowId: windowId)
         removeDeferredCreatedWindow(windowId)
         handleWindowDestroyed(windowId: windowId, pidHint: nil)
     }
@@ -562,14 +647,17 @@ final class AXEventHandler: CGSEventDelegate {
         for windowId in deferredWindowIds {
             guard let controller else { return }
             guard let token = resolveWindowToken(windowId) else {
+                discardCreatePlacementContext(windowId: windowId)
                 continue
             }
             if controller.workspaceManager.entry(for: token) != nil {
+                discardCreatePlacementContext(windowId: windowId)
                 continue
             }
             guard let candidate = prepareCreateCandidate(
                 windowId: windowId,
-                windowInfo: resolveWindowInfo(windowId)
+                windowInfo: resolveWindowInfo(windowId),
+                createPlacementContext: createPlacementContextsByWindowId[windowId]
             ) else {
                 if let windowInfo = resolveWindowInfo(windowId) {
                     _ = scheduleCreatedWindowRetryIfNeeded(
@@ -591,6 +679,7 @@ final class AXEventHandler: CGSEventDelegate {
     private func trackPreparedCreate(_ candidate: PreparedCreate) {
         guard let controller else { return }
         cancelCreatedWindowRetry(windowId: candidate.windowId)
+        discardCreatePlacementContext(windowId: candidate.windowId)
         recordNiriCreateFocusTrace(
             .init(
                 kind: .candidateTracked(
@@ -1412,7 +1501,8 @@ final class AXEventHandler: CGSEventDelegate {
 
     private func prepareCreateCandidate(
         windowId: UInt32,
-        windowInfo: WindowServerInfo?
+        windowInfo: WindowServerInfo?,
+        createPlacementContext: WindowCreatePlacementContext? = nil
     ) -> PreparedCreate? {
         guard let controller else { return nil }
         let ownedWindow = controller.isOwnedWindow(windowNumber: Int(windowId))
@@ -1453,10 +1543,20 @@ final class AXEventHandler: CGSEventDelegate {
         guard let trackedMode else { return nil }
 
         let resolvedBundleId = bundleId ?? evaluation.facts.ax.bundleId
+        let structuralReplacementWorkspaceId = structuralReplacementWorkspaceIdForCreate(
+            token: token,
+            bundleId: resolvedBundleId,
+            mode: trackedMode,
+            facts: evaluation.facts
+        )
         let workspaceId = controller.resolveWorkspaceForNewWindow(
             workspaceName: evaluation.decision.workspaceName,
             axRef: axRef,
             pid: token.pid,
+            parentWindowId: evaluation.facts.windowServer?.parentId,
+            structuralReplacementWorkspaceId: structuralReplacementWorkspaceId,
+            createPlacementContext: createPlacementContext,
+            windowFrame: evaluation.facts.windowServer?.frame ?? windowInfo?.frame,
             fallbackWorkspaceId: controller.activeWorkspace()?.id
         )
 
@@ -1470,7 +1570,8 @@ final class AXEventHandler: CGSEventDelegate {
                 workspaceId: workspaceId,
                 mode: trackedMode,
                 facts: evaluation.facts
-            )
+            ),
+            hasStructuralReplacementWorkspaceMatch: structuralReplacementWorkspaceId != nil
         )
     }
 
@@ -1572,7 +1673,7 @@ final class AXEventHandler: CGSEventDelegate {
             return true
         }
 
-        return hasPotentialStructuralReplacementSibling(for: candidate)
+        return candidate.hasStructuralReplacementWorkspaceMatch
     }
 
     private func shouldDelayManagedReplacementDestroy(_ candidate: PreparedDestroy) -> Bool {
@@ -1684,13 +1785,17 @@ final class AXEventHandler: CGSEventDelegate {
 
     @discardableResult
     private func rekeyManagedReplacement(from oldToken: WindowToken, to create: PreparedCreate) -> Bool {
-        rekeyManagedWindowIdentity(
+        let entry = rekeyManagedWindowIdentity(
             from: oldToken,
             to: create.token,
             windowId: create.windowId,
             axRef: create.axRef,
             managedReplacementMetadata: create.replacementMetadata
-        ) != nil
+        )
+        if entry != nil {
+            discardCreatePlacementContext(windowId: create.windowId)
+        }
+        return entry != nil
     }
 
     private func makeManagedReplacementMetadata(
@@ -1785,30 +1890,75 @@ final class AXEventHandler: CGSEventDelegate {
         return !managedReplacementHasStructuralAnchor(metadata)
     }
 
-    private func hasPotentialStructuralReplacementSibling(for candidate: PreparedCreate) -> Bool {
-        guard let controller else { return false }
-        return controller.workspaceManager.entries(forPid: candidate.token.pid).contains { entry in
-            guard entry.workspaceId == candidate.workspaceId,
-                  entry.token != candidate.token
-            else {
-                return false
-            }
-
-            let siblingMetadata = overlayWindowServerInfo(
-                resolveWindowInfo(UInt32(entry.windowId)),
-                onto: cachedManagedReplacementMetadata(
-                    for: entry,
-                    fallbackBundleId: candidate.bundleId
-                )
-            )
-            guard managedReplacementCorrelationPolicy(for: siblingMetadata) != nil else {
-                return false
-            }
-            return managedReplacementMetadataMatches(
-                old: siblingMetadata,
-                new: candidate.replacementMetadata
-            )
+    private func structuralReplacementMatch(
+        token: WindowToken,
+        bundleId: String?,
+        mode: TrackedWindowMode,
+        facts: WindowRuleFacts
+    ) -> StructuralReplacementMatch? {
+        guard let controller,
+              let fallbackWorkspaceId = controller.activeWorkspace()?.id
+              ?? controller.workspaceManager.primaryWorkspace()?.id
+              ?? controller.workspaceManager.workspaces.first?.id
+        else {
+            return nil
         }
+
+        let baseMetadata = makeManagedReplacementMetadata(
+            bundleId: bundleId,
+            workspaceId: fallbackWorkspaceId,
+            mode: mode,
+            facts: facts
+        )
+        guard managedReplacementCorrelationPolicy(for: baseMetadata) != nil else { return nil }
+
+        var match: StructuralReplacementMatch?
+        func recordMatch(token: WindowToken, workspaceId: WorkspaceDescriptor.ID) -> Bool {
+            if match != nil {
+                return false
+            }
+            match = StructuralReplacementMatch(token: token, workspaceId: workspaceId)
+            return true
+        }
+
+        func matches(_ oldMetadata: ManagedReplacementMetadata) -> Bool {
+            var newMetadata = baseMetadata
+            newMetadata.workspaceId = oldMetadata.workspaceId
+            return managedReplacementMetadataMatches(old: oldMetadata, new: newMetadata)
+        }
+
+        for burst in pendingManagedReplacementBursts.values {
+            for destroy in burst.destroys where destroy.candidate.token.pid == token.pid {
+                let metadata = destroy.candidate.replacementMetadata
+                if matches(metadata),
+                   !recordMatch(token: destroy.candidate.token, workspaceId: metadata.workspaceId)
+                {
+                    return nil
+                }
+            }
+        }
+
+        for entry in controller.workspaceManager.entries(forPid: token.pid) where entry.token != token {
+            let cachedMetadata = cachedManagedReplacementMetadata(
+                for: entry,
+                fallbackBundleId: bundleId
+            )
+            let metadata = if managedReplacementCorrelationPolicy(for: cachedMetadata) != nil {
+                cachedMetadata
+            } else {
+                overlayWindowServerInfo(
+                    resolveWindowInfo(UInt32(entry.windowId)),
+                    onto: cachedMetadata
+                )
+            }
+            if matches(metadata),
+               !recordMatch(token: entry.token, workspaceId: metadata.workspaceId)
+            {
+                return nil
+            }
+        }
+
+        return match
     }
 
     private func managedReplacementCorrelationPolicy(
@@ -2078,10 +2228,12 @@ final class AXEventHandler: CGSEventDelegate {
         let token = WindowToken(pid: pid, windowId: Int(windowId))
         guard controller.workspaceManager.entry(for: token) == nil else {
             cancelCreatedWindowRetry(windowId: windowId)
+            discardCreatePlacementContext(windowId: windowId)
             return false
         }
         guard !controller.isOwnedWindow(windowNumber: Int(windowId)) else {
             cancelCreatedWindowRetry(windowId: windowId)
+            discardCreatePlacementContext(windowId: windowId)
             return false
         }
         guard resolveAXWindowRef(windowId: windowId, pid: pid) == nil else {
@@ -2089,7 +2241,10 @@ final class AXEventHandler: CGSEventDelegate {
         }
 
         let attempt = createdWindowRetryCountById[windowId, default: 0] + 1
-        guard attempt <= Self.createdWindowRetryLimit else { return false }
+        guard attempt <= Self.createdWindowRetryLimit else {
+            discardCreatePlacementContext(windowId: windowId)
+            return false
+        }
 
         createdWindowRetryCountById[windowId] = attempt
         pendingCreatedWindowRetryTasks.removeValue(forKey: windowId)?.cancel()
@@ -2122,6 +2277,72 @@ final class AXEventHandler: CGSEventDelegate {
         }
         pendingCreatedWindowRetryTasks.removeAll()
         createdWindowRetryCountById.removeAll()
+    }
+
+    private func captureCreatePlacementContext(windowId: UInt32, spaceId: UInt64) {
+        pruneExpiredCreatePlacementContexts()
+        guard createPlacementContextsByWindowId[windowId] == nil,
+              let controller
+        else {
+            return
+        }
+
+        let origin = resolveCreatePlacementOrigin(spaceId: spaceId, controller: controller)
+        createPlacementContextsByWindowId[windowId] = WindowCreatePlacementContext(
+            windowId: windowId,
+            spaceId: spaceId,
+            originWorkspaceId: origin.workspaceId,
+            originMonitorId: origin.monitorId,
+            createdAt: Date()
+        )
+    }
+
+    private func resolveCreatePlacementOrigin(
+        spaceId: UInt64,
+        controller: WMController
+    ) -> (workspaceId: WorkspaceDescriptor.ID?, monitorId: Monitor.ID?) {
+        let monitors = controller.workspaceManager.monitors
+        let displayId: CGDirectDisplayID?
+        if let spaceDisplayResolver {
+            displayId = spaceDisplayResolver(spaceId, monitors)
+        } else {
+            displayId = SkyLight.shared.displayId(forSpaceId: spaceId, among: monitors)
+        }
+        guard let displayId,
+              let monitor = monitors.first(where: { $0.displayId == displayId })
+        else {
+            return fallbackCreatePlacementOrigin(controller: controller)
+        }
+
+        return (
+            controller.workspaceManager.currentActiveWorkspace(on: monitor.id)?.id ??
+                controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id,
+            monitor.id
+        )
+    }
+
+    private func fallbackCreatePlacementOrigin(
+        controller: WMController
+    ) -> (workspaceId: WorkspaceDescriptor.ID?, monitorId: Monitor.ID?) {
+        let monitor = controller.monitorForInteraction()
+        let workspaceId = monitor.flatMap {
+            controller.workspaceManager.activeWorkspaceOrFirst(on: $0.id)?.id
+        } ?? controller.activeWorkspace()?.id
+        return (workspaceId, monitor?.id)
+    }
+
+    private func discardCreatePlacementContext(windowId: UInt32) {
+        createPlacementContextsByWindowId.removeValue(forKey: windowId)
+    }
+
+    private func resetCreatePlacementContextState() {
+        createPlacementContextsByWindowId.removeAll()
+    }
+
+    private func pruneExpiredCreatePlacementContexts(now: Date = Date()) {
+        createPlacementContextsByWindowId = createPlacementContextsByWindowId.filter { _, context in
+            now.timeIntervalSince(context.createdAt) < Self.createPlacementContextTTL
+        }
     }
 
     private func handleMissingFocusedWindow(

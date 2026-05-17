@@ -842,12 +842,20 @@ final class WMController {
         workspaceName: String? = nil,
         axRef: AXWindowRef,
         pid: pid_t,
+        parentWindowId: UInt32? = nil,
+        structuralReplacementWorkspaceId: WorkspaceDescriptor.ID? = nil,
+        createPlacementContext: WindowCreatePlacementContext? = nil,
+        windowFrame: CGRect? = nil,
         fallbackWorkspaceId: WorkspaceDescriptor.ID?
     ) -> WorkspaceDescriptor.ID {
         resolveWorkspacePlacement(
             workspaceName: workspaceName,
             axRef: axRef,
             pid: pid,
+            parentWindowId: parentWindowId,
+            structuralReplacementWorkspaceId: structuralReplacementWorkspaceId,
+            createPlacementContext: createPlacementContext,
+            windowFrame: windowFrame,
             existingEntry: nil,
             fallbackWorkspaceId: fallbackWorkspaceId,
             context: .automatic
@@ -858,6 +866,10 @@ final class WMController {
         workspaceName: String?,
         axRef: AXWindowRef,
         pid: pid_t?,
+        parentWindowId: UInt32?,
+        structuralReplacementWorkspaceId: WorkspaceDescriptor.ID?,
+        createPlacementContext: WindowCreatePlacementContext?,
+        windowFrame: CGRect?,
         existingEntry: WindowModel.Entry?,
         fallbackWorkspaceId: WorkspaceDescriptor.ID?,
         context: WindowRuleReevaluationContext
@@ -866,15 +878,17 @@ final class WMController {
             return existingEntry.workspaceId
         }
 
-        if context == .automatic,
-           existingEntry == nil,
-           let pid,
-           let siblingWorkspaceId = workspaceForNewSiblingWindow(
-               pid: pid,
-               fallbackWorkspaceId: fallbackWorkspaceId
-           )
+        if existingEntry == nil,
+           let structuralReplacementWorkspaceId,
+           workspaceManager.descriptor(for: structuralReplacementWorkspaceId) != nil
         {
-            return siblingWorkspaceId
+            return structuralReplacementWorkspaceId
+        }
+
+        if existingEntry == nil,
+           let parentWorkspaceId = workspaceForTrackedParentWindow(parentWindowId: parentWindowId, pid: pid)
+        {
+            return parentWorkspaceId
         }
 
         if let workspaceName,
@@ -887,43 +901,35 @@ final class WMController {
             return existingEntry.workspaceId
         }
 
-        return defaultWorkspaceId(for: axRef, fallbackWorkspaceId: fallbackWorkspaceId)
+        return defaultWorkspaceId(
+            for: axRef,
+            createPlacementContext: createPlacementContext,
+            windowFrame: windowFrame,
+            fallbackWorkspaceId: fallbackWorkspaceId
+        )
     }
 
-    private func workspaceForNewSiblingWindow(
-        pid: pid_t,
-        fallbackWorkspaceId: WorkspaceDescriptor.ID?
+    private func workspaceForTrackedParentWindow(
+        parentWindowId: UInt32?,
+        pid _: pid_t?
     ) -> WorkspaceDescriptor.ID? {
-        let entries = workspaceManager.entries(forPid: pid)
-        guard !entries.isEmpty else { return nil }
-
-        if let focusedToken = workspaceManager.focusedToken,
-           let focusedEntry = entries.first(where: { $0.token == focusedToken })
-        {
-            return focusedEntry.workspaceId
-        }
-
-        if let fallbackWorkspaceId,
-           entries.contains(where: { $0.workspaceId == fallbackWorkspaceId })
-        {
-            return fallbackWorkspaceId
-        }
-
-        let workspaceIds = Set(entries.map(\.workspaceId))
-        return workspaceIds.count == 1 ? entries[0].workspaceId : nil
+        guard let parentWindowId, parentWindowId != 0 else { return nil }
+        return workspaceManager.entry(forWindowId: Int(parentWindowId))?.workspaceId
     }
 
     private func defaultWorkspaceId(
         for axRef: AXWindowRef,
+        createPlacementContext: WindowCreatePlacementContext?,
+        windowFrame: CGRect?,
         fallbackWorkspaceId: WorkspaceDescriptor.ID?
     ) -> WorkspaceDescriptor.ID {
-        if let monitor = monitorForInteraction(),
-           let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
+        if let workspaceId = createPlacementContext?.originWorkspaceId,
+           workspaceManager.descriptor(for: workspaceId) != nil
         {
-            return workspace.id
+            return workspaceId
         }
 
-        if let frame = AXWindowService.framePreferFast(axRef) {
+        if let frame = windowFrame ?? AXWindowService.framePreferFast(axRef) {
             let center = frame.center
             if let monitor = center.monitorApproximation(in: workspaceManager.monitors),
                let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
@@ -931,8 +937,15 @@ final class WMController {
                 return workspace.id
             }
         }
-        if let fallbackWorkspaceId {
+        if let fallbackWorkspaceId,
+           workspaceManager.descriptor(for: fallbackWorkspaceId) != nil
+        {
             return fallbackWorkspaceId
+        }
+        if let monitor = monitorForInteraction(),
+           let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
+        {
+            return workspace.id
         }
         if let workspaceId = workspaceManager.primaryWorkspace()?.id ?? workspaceManager.workspaces.first?.id {
             return workspaceId
@@ -1492,12 +1505,18 @@ final class WMController {
         axRef: AXWindowRef,
         existingEntry: WindowModel.Entry?,
         fallbackWorkspaceId: WorkspaceDescriptor.ID?,
+        structuralReplacementWorkspaceId: WorkspaceDescriptor.ID? = nil,
+        createPlacementContext: WindowCreatePlacementContext? = nil,
         context: WindowRuleReevaluationContext = .automatic
     ) -> WorkspaceDescriptor.ID {
         resolveWorkspacePlacement(
             workspaceName: evaluation.decision.workspaceName,
             axRef: axRef,
             pid: evaluation.token.pid,
+            parentWindowId: evaluation.facts.windowServer?.parentId,
+            structuralReplacementWorkspaceId: structuralReplacementWorkspaceId,
+            createPlacementContext: createPlacementContext,
+            windowFrame: evaluation.facts.windowServer?.frame,
             existingEntry: existingEntry,
             fallbackWorkspaceId: fallbackWorkspaceId,
             context: context
@@ -1714,6 +1733,9 @@ final class WMController {
             let existingEntry = workspaceManager.entry(for: token)
             let axRef = liveWindowsByToken[token] ?? existingEntry?.axRef
             guard let axRef else { continue }
+            let createPlacementContext = existingEntry == nil
+                ? axEventHandler.pendingCreatePlacementContext(for: token.windowId)
+                : nil
 
             evaluatedAnyWindow = true
             let evaluation = evaluateWindowDisposition(axRef: axRef, pid: token.pid)
@@ -1728,6 +1750,8 @@ final class WMController {
                     cleanupScratchpadWindowResourcesIfNeeded(for: token)
                     _ = workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
                     relayoutNeeded = true
+                } else if evaluation.decision.disposition != .undecided {
+                    axEventHandler.discardCreatePlacementContext(for: token.windowId)
                 }
                 continue
             }
@@ -1735,13 +1759,39 @@ final class WMController {
             let oldEffects = existingEntry?.ruleEffects ?? .none
             let oldMode = existingEntry?.mode
             let oldWorkspaceId = existingEntry?.workspaceId
+            let structuralReplacementWorkspaceId = existingEntry == nil
+                ? axEventHandler.structuralReplacementWorkspaceIdForCreate(
+                    token: token,
+                    bundleId: evaluation.facts.ax.bundleId,
+                    mode: effectiveTrackedMode,
+                    facts: evaluation.facts
+                )
+                : nil
             let workspaceId = resolvedWorkspaceId(
                 for: evaluation,
                 axRef: axRef,
                 existingEntry: existingEntry,
                 fallbackWorkspaceId: activeWorkspace()?.id,
+                structuralReplacementWorkspaceId: structuralReplacementWorkspaceId,
+                createPlacementContext: createPlacementContext,
                 context: context
             )
+
+            if existingEntry == nil,
+               let windowId = UInt32(exactly: token.windowId),
+               axEventHandler.rekeyStructuralManagedReplacementIfNeeded(
+                   token: token,
+                   windowId: windowId,
+                   axRef: axRef,
+                   bundleId: evaluation.facts.ax.bundleId,
+                   mode: effectiveTrackedMode,
+                   facts: evaluation.facts
+               )
+            {
+                affectedWorkspaceIds.insert(workspaceId)
+                relayoutNeeded = true
+                continue
+            }
 
             _ = workspaceManager.addWindow(
                 axRef,
@@ -1751,6 +1801,9 @@ final class WMController {
                 mode: oldMode ?? effectiveTrackedMode,
                 ruleEffects: evaluation.decision.ruleEffects
             )
+            if existingEntry == nil {
+                axEventHandler.discardCreatePlacementContext(for: token.windowId)
+            }
 
             if let oldMode, oldMode != effectiveTrackedMode {
                 _ = transitionWindowMode(

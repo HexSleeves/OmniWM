@@ -740,7 +740,7 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
         #expect(fixture.handler.state.isResizing == false)
     }
 
-    @Test @MainActor func queuedMouseMovesCollapseToLatestLocation() async {
+    @Test @MainActor func queuedMouseMovesCollapseToLatestLocationWithoutArmingResizeHover() async {
         let fixture = await prepareMouseResizeFixture()
 
         let center = CGPoint(x: fixture.nodeFrame.midX, y: fixture.nodeFrame.midY)
@@ -755,7 +755,102 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
         #expect(debugSnapshot.queuedTransientEvents == 2)
         #expect(debugSnapshot.coalescedTransientEvents == 1)
         #expect(debugSnapshot.drainedTransientEvents == 1)
-        #expect(fixture.handler.state.currentHoveredEdges == [.right])
+        #expect(fixture.handler.state.currentHoveredEdges == [])
+    }
+
+    @Test @MainActor func plainLeftMouseDownOnResizeEdgeDoesNotStartResize() async {
+        let fixture = await prepareMouseResizeFixture()
+        guard let engine = fixture.controller.niriEngine else {
+            Issue.record("Missing Niri engine")
+            return
+        }
+
+        let rightEdge = CGPoint(x: fixture.nodeFrame.maxX - 1, y: fixture.nodeFrame.midY)
+        fixture.handler.dispatchMouseMoved(at: rightEdge)
+        fixture.handler.dispatchMouseDown(at: rightEdge, modifiers: [])
+
+        #expect(fixture.handler.state.isResizing == false)
+        #expect(engine.interactiveResize == nil)
+        #expect(fixture.handler.state.currentHoveredEdges == [])
+    }
+
+    @Test @MainActor func optionRightMouseDragStartsAndUpdatesResize() async {
+        let fixture = await prepareMouseResizeFixture()
+        guard let engine = fixture.controller.niriEngine,
+              let resizeWindow = engine.findNode(for: fixture.handle),
+              let column = engine.findColumn(containing: resizeWindow, in: fixture.workspaceId),
+              let monitor = fixture.controller.workspaceManager.monitor(for: fixture.workspaceId)
+        else {
+            Issue.record("Missing Niri resize state")
+            return
+        }
+
+        let originalWidth = column.cachedWidth
+        let insetFrame = fixture.controller.insetWorkingFrame(for: monitor)
+        let maxWidth = insetFrame.width - CGFloat(fixture.controller.workspaceManager.gaps)
+        let expectedWidth = min(originalWidth + 24, maxWidth)
+        let start = CGPoint(x: fixture.nodeFrame.maxX - 20, y: fixture.nodeFrame.midY)
+        let end = CGPoint(x: start.x + 24, y: start.y)
+
+        fixture.handler.pressedMouseButtonsProvider = { 2 }
+        fixture.handler.dispatchMouseDown(at: start, modifiers: [.maskAlternate], button: .right)
+        fixture.handler.dispatchMouseDragged(at: end, button: .right)
+        fixture.handler.pressedMouseButtonsProvider = { 0 }
+        fixture.handler.dispatchMouseUp(at: end, button: .right)
+        await fixture.controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(fixture.handler.state.isResizing == false)
+        #expect(engine.interactiveResize == nil)
+        #expect(abs(column.cachedWidth - expectedWidth) < 0.001)
+    }
+
+    @Test @MainActor func optionRightMouseTapCallbackSuppressesClaimedResizeEvents() async {
+        let fixture = await prepareMouseResizeFixture()
+
+        func makeRightMouseEvent(_ type: CGEventType, at location: CGPoint) -> CGEvent? {
+            let event = CGEvent(
+                mouseEventSource: nil,
+                mouseType: type,
+                mouseCursorPosition: ScreenCoordinateSpace.toWindowServer(point: location),
+                mouseButton: .right
+            )
+            event?.flags = [.maskAlternate]
+            return event
+        }
+
+        let start = CGPoint(x: fixture.nodeFrame.maxX - 20, y: fixture.nodeFrame.midY)
+        let end = CGPoint(x: start.x + 24, y: start.y)
+
+        guard let dragged = makeRightMouseEvent(.rightMouseDragged, at: end),
+              let up = makeRightMouseEvent(.rightMouseUp, at: end)
+        else {
+            Issue.record("Failed to create right mouse CGEvents")
+            return
+        }
+
+        fixture.handler.pressedMouseButtonsProvider = { 2 }
+        let suppressDown = fixture.handler.receiveTapMouseDown(
+            at: start,
+            modifiers: [.maskAlternate],
+            button: .right
+        )
+        let suppressDragged = fixture.handler.handleTapCallbackForTests(
+            type: .rightMouseDragged,
+            event: dragged,
+            isMainThread: true
+        )
+        fixture.handler.pressedMouseButtonsProvider = { 0 }
+        let suppressUp = fixture.handler.handleTapCallbackForTests(
+            type: .rightMouseUp,
+            event: up,
+            isMainThread: true
+        )
+        await fixture.controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(suppressDown)
+        #expect(suppressDragged)
+        #expect(suppressUp)
+        #expect(fixture.handler.state.isResizing == false)
     }
 
     @Test @MainActor func queuedResizeDragFlushesBeforeMouseUpUsingLatestLocation() async {

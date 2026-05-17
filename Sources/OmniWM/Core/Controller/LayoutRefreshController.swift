@@ -1145,6 +1145,9 @@ import QuartzCore
             )
             let decision = evaluation.decision
             var existingEntry = controller.workspaceManager.entry(for: token)
+            let createPlacementContext = existingEntry == nil
+                ? controller.axEventHandler.pendingCreatePlacementContext(for: winId)
+                : nil
             let temporarilyUnavailableRecord: WorkspaceManager.NativeFullscreenRecord? = if let existingEntry,
                                                                                             let record = controller
                                                                                             .workspaceManager
@@ -1169,7 +1172,8 @@ import QuartzCore
                 for: evaluation,
                 axRef: ax,
                 existingEntry: existingEntry,
-                fallbackWorkspaceId: focusedWorkspaceId
+                fallbackWorkspaceId: focusedWorkspaceId,
+                createPlacementContext: createPlacementContext
             )
             if controller.workspaceAssignment(pid: pid, windowId: winId) == nil,
                controller.axEventHandler.restoreNativeFullscreenReplacementIfNeeded(
@@ -1182,6 +1186,7 @@ import QuartzCore
             {
                 seenKeys.insert(token)
                 existingEntry = controller.workspaceManager.entry(for: token)
+                controller.axEventHandler.discardCreatePlacementContext(for: winId)
             }
             let shouldPreservePreFullscreenState = existingEntry.map { existingEntry in
                 !appFullscreen
@@ -1200,7 +1205,33 @@ import QuartzCore
             guard let trackedMode = effectiveTrackedMode else {
                 if existingEntry != nil {
                     decisionBasedRemovals.append(token)
+                } else {
+                    controller.axEventHandler.discardCreatePlacementContext(for: winId)
                 }
+                continue
+            }
+
+            let structuralReplacementWorkspaceId = existingEntry == nil
+                ? controller.axEventHandler.structuralReplacementWorkspaceIdForCreate(
+                    token: token,
+                    bundleId: bundleId ?? evaluation.facts.ax.bundleId,
+                    mode: trackedMode,
+                    facts: evaluation.facts
+                )
+                : nil
+            if existingEntry == nil,
+               let windowId = UInt32(exactly: winId),
+               controller.axEventHandler.rekeyStructuralManagedReplacementIfNeeded(
+                   token: token,
+                   windowId: windowId,
+                   axRef: ax,
+                   bundleId: bundleId ?? evaluation.facts.ax.bundleId,
+                   mode: trackedMode,
+                   facts: evaluation.facts
+               )
+            {
+                seenKeys.insert(token)
+                controller.axEventHandler.discardCreatePlacementContext(for: winId)
                 continue
             }
 
@@ -1208,7 +1239,9 @@ import QuartzCore
                 for: evaluation,
                 axRef: ax,
                 existingEntry: existingEntry,
-                fallbackWorkspaceId: focusedWorkspaceId
+                fallbackWorkspaceId: focusedWorkspaceId,
+                structuralReplacementWorkspaceId: structuralReplacementWorkspaceId,
+                createPlacementContext: createPlacementContext
             )
             if controller.workspaceAssignment(pid: pid, windowId: winId) == nil,
                controller.axEventHandler.restoreNativeFullscreenReplacementIfNeeded(
@@ -1220,6 +1253,7 @@ import QuartzCore
                )
             {
                 seenKeys.insert(token)
+                controller.axEventHandler.discardCreatePlacementContext(for: winId)
                 continue
             }
 
@@ -1246,15 +1280,34 @@ import QuartzCore
                 ruleEffects = decision.ruleEffects
             }
             let oldMode = existingEntry?.mode
+            let admittedMode = oldMode ?? trackedMode
+            let managedReplacementMetadata = ManagedReplacementMetadata(
+                bundleId: evaluation.facts.ax.bundleId ?? bundleId ?? existingEntry?.managedReplacementMetadata?
+                    .bundleId,
+                workspaceId: wsForWindow,
+                mode: admittedMode,
+                role: evaluation.facts.ax.role ?? existingEntry?.managedReplacementMetadata?.role,
+                subrole: evaluation.facts.ax.subrole ?? existingEntry?.managedReplacementMetadata?.subrole,
+                title: evaluation.facts.ax.title ?? existingEntry?.managedReplacementMetadata?.title,
+                windowLevel: evaluation.facts.windowServer?.level ?? existingEntry?.managedReplacementMetadata?
+                    .windowLevel,
+                parentWindowId: evaluation.facts.windowServer?.parentId ?? existingEntry?.managedReplacementMetadata?
+                    .parentWindowId,
+                frame: evaluation.facts.windowServer?.frame ?? existingEntry?.managedReplacementMetadata?.frame
+            )
 
             _ = controller.workspaceManager.addWindow(
                 ax,
                 pid: pid,
                 windowId: winId,
                 to: wsForWindow,
-                mode: oldMode ?? trackedMode,
-                ruleEffects: ruleEffects
+                mode: admittedMode,
+                ruleEffects: ruleEffects,
+                managedReplacementMetadata: managedReplacementMetadata
             )
+            if existingEntry == nil {
+                controller.axEventHandler.discardCreatePlacementContext(for: winId)
+            }
 
             if shouldPreservePreFullscreenState {
                 seenKeys.insert(token)

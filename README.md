@@ -410,7 +410,7 @@ Hide or reveal status bar icons using a separator item:
 - **Workspaces** - Create named workspaces in Settings to organize by project or context (You can use emojis 🥳)
 - **App Rules** - Exclude problematic apps from tiling or assign them to specific workspaces
 - **Mouse** - `Option + drag` swaps tiled windows; `Option + Shift + drag` inserts windows to a column (Niri)
-- **Mouse Resize** - Hover window edges and drag to resize (Niri)
+- **Mouse Resize** - Hold `Option` and right-drag a tiled window to resize (Niri)
 - **Scroll Gestures (Mouse)** - Hold `Option + Shift + Mouse Scroll Wheel` (default, configurable) and scroll through columns horizontally
 - **Trackpad Gestures** - Use horizontal gestures with 2/3/4 fingers (configurable); direction can be inverted (not tested lacking hardware)
 

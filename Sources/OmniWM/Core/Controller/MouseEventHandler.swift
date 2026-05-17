@@ -17,6 +17,18 @@ private let mouseWheelRelevantModifierFlags: CGEventFlags = [
 
 @MainActor
 final class MouseEventHandler {
+    enum MouseButton: Hashable {
+        case left
+        case right
+
+        var pressedMask: Int {
+            switch self {
+            case .left: 1
+            case .right: 2
+            }
+        }
+    }
+
     private enum MouseWheelColumnAxis {
         case horizontal
         case vertical
@@ -68,9 +80,9 @@ final class MouseEventHandler {
             case committed
         }
 
-        enum PendingTapKind: CaseIterable {
+        enum PendingTapKind {
             case mouseMoved
-            case leftMouseDragged
+            case mouseDragged(MouseButton)
             case scrollWheel
         }
 
@@ -119,7 +131,8 @@ final class MouseEventHandler {
         struct PendingTapEvents {
             var orderedKinds: [PendingTapKind] = []
             var mouseMovedLocation: CGPoint?
-            var mouseDraggedLocation: CGPoint?
+            var leftMouseDraggedLocation: CGPoint?
+            var rightMouseDraggedLocation: CGPoint?
             var scrollPayload: ScrollPayload?
             var drainScheduled = false
 
@@ -127,10 +140,24 @@ final class MouseEventHandler {
                 !orderedKinds.isEmpty
             }
 
+            mutating func setMouseDraggedLocation(_ location: CGPoint, for button: MouseButton) -> Bool {
+                switch button {
+                case .left:
+                    let didCoalesce = leftMouseDraggedLocation != nil
+                    leftMouseDraggedLocation = location
+                    return didCoalesce
+                case .right:
+                    let didCoalesce = rightMouseDraggedLocation != nil
+                    rightMouseDraggedLocation = location
+                    return didCoalesce
+                }
+            }
+
             mutating func clear() {
                 orderedKinds.removeAll(keepingCapacity: true)
                 mouseMovedLocation = nil
-                mouseDraggedLocation = nil
+                leftMouseDraggedLocation = nil
+                rightMouseDraggedLocation = nil
                 scrollPayload = nil
                 drainScheduled = false
             }
@@ -151,6 +178,7 @@ final class MouseEventHandler {
         var currentHoveredEdges: ResizeEdge = []
         var isResizing: Bool = false
         var isMoving: Bool = false
+        var activeInteractionButton: MouseButton?
 
         var lastFocusFollowsMouseTime: Date = .distantPast
         var lastFocusFollowsMouseToken: WindowToken?
@@ -188,6 +216,9 @@ final class MouseEventHandler {
             (1 << CGEventType.leftMouseDown.rawValue) |
             (1 << CGEventType.leftMouseDragged.rawValue) |
             (1 << CGEventType.leftMouseUp.rawValue) |
+            (1 << CGEventType.rightMouseDown.rawValue) |
+            (1 << CGEventType.rightMouseDragged.rawValue) |
+            (1 << CGEventType.rightMouseUp.rawValue) |
             (1 << CGEventType.scrollWheel.rawValue)
 
         let callback: CGEventTapCallBack = { _, type, event, _ in
@@ -198,15 +229,15 @@ final class MouseEventHandler {
                 return Unmanaged.passUnretained(event)
             }
 
-            _ = MouseEventHandler.processTapCallback(type: type, event: event)
+            let suppressEvent = MouseEventHandler.processTapCallback(type: type, event: event)
 
-            return Unmanaged.passUnretained(event)
+            return suppressEvent ? nil : Unmanaged.passUnretained(event)
         }
 
         state.eventTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .listenOnly,
+            options: .defaultTap,
             eventsOfInterest: eventMask,
             callback: callback,
             userInfo: nil
@@ -273,6 +304,7 @@ final class MouseEventHandler {
         MouseEventHandler._instance = nil
         state.currentHoveredEdges = []
         state.isResizing = false
+        state.activeInteractionButton = nil
         state.pendingTapEvents.clear()
         resetGestureState()
     }
@@ -285,31 +317,36 @@ final class MouseEventHandler {
         handleMouseMovedFromTap(at: location)
     }
 
-    func dispatchMouseDown(at location: CGPoint, modifiers: CGEventFlags) {
-        guard !isInputSuppressed else { return }
-        guard let controller else { return }
+    @discardableResult
+    func dispatchMouseDown(
+        at location: CGPoint,
+        modifiers: CGEventFlags,
+        button: MouseButton = .left
+    ) -> Bool {
+        guard !isInputSuppressed else { return false }
+        guard let controller else { return false }
         if controller.isPointInOwnWindow(location) {
-            return
+            return false
         }
-        handleMouseDownFromTap(at: location, modifiers: modifiers)
+        return handleMouseDownFromTap(at: location, modifiers: modifiers, button: button)
     }
 
-    func dispatchMouseDragged(at location: CGPoint) {
+    func dispatchMouseDragged(at location: CGPoint, button: MouseButton = .left) {
         guard !isInputSuppressed else { return }
         if let controller, controller.isPointInOwnWindow(location) {
             cancelActiveMouseInteraction()
             return
         }
-        handleMouseDraggedFromTap(at: location)
+        handleMouseDraggedFromTap(at: location, button: button)
     }
 
-    func dispatchMouseUp(at location: CGPoint) {
+    func dispatchMouseUp(at location: CGPoint, button: MouseButton = .left) {
         guard !isInputSuppressed else { return }
         if let controller, controller.isPointInOwnWindow(location) {
             cancelActiveMouseInteraction()
             return
         }
-        handleMouseUpFromTap(at: location)
+        handleMouseUpFromTap(at: location, button: button)
     }
 
     func dispatchScrollWheel(
@@ -386,7 +423,10 @@ final class MouseEventHandler {
         event: CGEvent,
         isMainThread: Bool
     ) -> Bool {
-        Self.processTapCallback(type: type, event: event, isMainThread: isMainThread)
+        let previousInstance = Self._instance
+        Self._instance = self
+        defer { Self._instance = previousInstance }
+        return Self.processTapCallback(type: type, event: event, isMainThread: isMainThread)
     }
 
     func handleGestureTapCallbackForTests(
@@ -402,27 +442,32 @@ final class MouseEventHandler {
         enqueuePendingMouseMoved(at: location)
     }
 
-    func receiveTapMouseDown(at location: CGPoint, modifiers: CGEventFlags) {
+    @discardableResult
+    func receiveTapMouseDown(
+        at location: CGPoint,
+        modifiers: CGEventFlags,
+        button: MouseButton = .left
+    ) -> Bool {
         if let controller, controller.isPointInOwnWindow(location) {
             dropPendingTapEvents()
         } else {
             flushPendingTapEvents(beforeImmediateDispatch: true)
         }
-        dispatchMouseDown(at: location, modifiers: modifiers)
+        return dispatchMouseDown(at: location, modifiers: modifiers, button: button)
     }
 
-    func receiveTapMouseDragged(at location: CGPoint) {
+    func receiveTapMouseDragged(at location: CGPoint, button: MouseButton = .left) {
         flushPendingScrollBeforeNonScroll()
-        enqueuePendingMouseDragged(at: location)
+        enqueuePendingMouseDragged(at: location, button: button)
     }
 
-    func receiveTapMouseUp(at location: CGPoint) {
+    func receiveTapMouseUp(at location: CGPoint, button: MouseButton = .left) {
         if let controller, controller.isPointInOwnWindow(location) {
             dropPendingTapEvents()
         } else {
             flushPendingTapEvents(beforeImmediateDispatch: true)
         }
-        dispatchMouseUp(at: location)
+        dispatchMouseUp(at: location, button: button)
     }
 
     func receiveTapScrollWheel(
@@ -498,11 +543,13 @@ final class MouseEventHandler {
             state.dragGhostController?.endDrag()
             state.isMoving = false
             state.moveIsInsertMode = false
+            state.activeInteractionButton = nil
         }
 
         if state.isResizing {
             controller.niriEngine?.clearInteractiveResize()
             state.isResizing = false
+            state.activeInteractionButton = nil
         }
 
         resetHoveredEdgesIfNeeded()
@@ -546,12 +593,11 @@ final class MouseEventHandler {
         schedulePendingTapDrainIfNeeded()
     }
 
-    private func enqueuePendingMouseDragged(at location: CGPoint) {
+    private func enqueuePendingMouseDragged(at location: CGPoint, button: MouseButton) {
         state.debugCounters.queuedTransientEvents += 1
-        let didCoalesce = state.pendingTapEvents.mouseDraggedLocation != nil
-        state.pendingTapEvents.mouseDraggedLocation = location
+        let didCoalesce = state.pendingTapEvents.setMouseDraggedLocation(location, for: button)
         if !didCoalesce {
-            state.pendingTapEvents.orderedKinds.append(.leftMouseDragged)
+            state.pendingTapEvents.orderedKinds.append(.mouseDragged(button))
         } else {
             state.debugCounters.coalescedTransientEvents += 1
         }
@@ -603,7 +649,8 @@ final class MouseEventHandler {
 
         let pendingKinds = state.pendingTapEvents.orderedKinds
         let pendingMouseMoved = state.pendingTapEvents.mouseMovedLocation
-        let pendingMouseDragged = state.pendingTapEvents.mouseDraggedLocation
+        let pendingLeftMouseDragged = state.pendingTapEvents.leftMouseDraggedLocation
+        let pendingRightMouseDragged = state.pendingTapEvents.rightMouseDraggedLocation
         let pendingScroll = state.pendingTapEvents.scrollPayload
 
         state.pendingTapEvents.clear()
@@ -616,10 +663,14 @@ final class MouseEventHandler {
                     state.debugCounters.drainedTransientEvents += 1
                     dispatchMouseMoved(at: location)
                 }
-            case .leftMouseDragged:
-                if let location = pendingMouseDragged {
+            case let .mouseDragged(button):
+                let location = switch button {
+                case .left: pendingLeftMouseDragged
+                case .right: pendingRightMouseDragged
+                }
+                if let location {
                     state.debugCounters.drainedTransientEvents += 1
-                    replayQueuedMouseDragged(at: location)
+                    replayQueuedMouseDragged(at: location, button: button)
                 }
             case .scrollWheel:
                 if let payload = pendingScroll {
@@ -637,13 +688,13 @@ final class MouseEventHandler {
         }
     }
 
-    private func replayQueuedMouseDragged(at location: CGPoint) {
+    private func replayQueuedMouseDragged(at location: CGPoint, button: MouseButton) {
         guard !isInputSuppressed else { return }
         if let controller, controller.isPointInOwnWindow(location) {
             cancelActiveMouseInteraction()
             return
         }
-        handleMouseDraggedFromTap(at: location, requirePressedButtonCheck: false)
+        handleMouseDraggedFromTap(at: location, button: button, requirePressedButtonCheck: false)
     }
 
     private func handleMouseMovedFromTap(at location: CGPoint) {
@@ -664,22 +715,7 @@ final class MouseEventHandler {
         }
 
         guard !state.isResizing else { return }
-
-        guard let engine = controller.niriEngine,
-              let wsId = controller.activeWorkspace()?.id
-        else {
-            resetHoveredEdgesIfNeeded()
-            return
-        }
-
-        if let hitResult = engine.hitTestResize(point: location, in: wsId) {
-            if hitResult.edges != state.currentHoveredEdges {
-                hitResult.edges.cursor.set()
-                state.currentHoveredEdges = hitResult.edges
-            }
-        } else {
-            resetHoveredEdgesIfNeeded()
-        }
+        resetHoveredEdgesIfNeeded()
     }
 
     private func shouldHandleFocusFollowsMouse(at location: CGPoint) -> Bool {
@@ -693,22 +729,26 @@ final class MouseEventHandler {
         return !controller.niriLayoutHandler.hasScrollAnimation(for: workspace.id)
     }
 
-    private func handleMouseDownFromTap(at location: CGPoint, modifiers: CGEventFlags) {
-        guard let controller else { return }
-        guard controller.isEnabled else { return }
-        if controller.isOverviewOpen() { return }
+    private func handleMouseDownFromTap(
+        at location: CGPoint,
+        modifiers: CGEventFlags,
+        button: MouseButton
+    ) -> Bool {
+        guard let controller else { return false }
+        guard controller.isEnabled else { return false }
+        if controller.isOverviewOpen() { return false }
 
         if controller.isPointInOwnWindow(location) {
-            return
+            return false
         }
 
         guard let engine = controller.niriEngine,
               let wsId = controller.activeWorkspace()?.id
         else {
-            return
+            return false
         }
 
-        if modifiers.contains(.maskAlternate) {
+        if button == .left, modifiers.contains(.maskAlternate) {
             if let tiledWindow = engine.hitTestTiled(point: location, in: wsId),
                let monitor = controller.workspaceManager.monitor(for: wsId)
             {
@@ -735,6 +775,7 @@ final class MouseEventHandler {
                 if moveStarted {
                     state.moveIsInsertMode = isInsertMode
                     state.isMoving = true
+                    state.activeInteractionButton = button
                     NSCursor.closedHand.set()
 
                     if let entry = controller.workspaceManager.entry(for: tiledWindow.handle),
@@ -749,41 +790,70 @@ final class MouseEventHandler {
                             cursorLocation: location
                         )
                     }
-                    return
+                    return false
                 }
             }
+            return false
         }
 
-        guard !state.currentHoveredEdges.isEmpty else { return }
+        guard button == .right, modifiers.contains(.maskAlternate) else { return false }
+        guard let tiledWindow = engine.hitTestTiled(point: location, in: wsId),
+              let frame = tiledWindow.renderedFrame ?? tiledWindow.frame
+        else { return false }
 
-        if let hitResult = engine.hitTestResize(point: location, in: wsId) {
-            let currentViewOffset = controller.workspaceManager.niriViewportState(for: wsId).viewOffsetPixels.current()
-            if engine.interactiveResizeBegin(
-                windowId: hitResult.nodeId,
-                edges: hitResult.edges,
-                startLocation: location,
-                in: wsId,
-                viewOffset: currentViewOffset
-            ) {
-                state.isResizing = true
-                controller.niriLayoutHandler.cancelActiveAnimations(for: wsId)
-                hitResult.edges.cursor.set()
-            }
+        let edges = resizeEdges(for: location, in: frame)
+        let currentViewOffset = controller.workspaceManager.niriViewportState(for: wsId).viewOffsetPixels.current()
+        if engine.interactiveResizeBegin(
+            windowId: tiledWindow.id,
+            edges: edges,
+            startLocation: location,
+            in: wsId,
+            viewOffset: currentViewOffset
+        ) {
+            state.isResizing = true
+            state.activeInteractionButton = button
+            state.currentHoveredEdges = edges
+            controller.niriLayoutHandler.cancelActiveAnimations(for: wsId)
+            edges.cursor.set()
+            return true
+        }
+        return false
+    }
+
+    private func resizeEdges(for location: CGPoint, in frame: CGRect) -> ResizeEdge {
+        var edges: ResizeEdge = location.x < frame.midX ? [.left] : [.right]
+        edges.insert(location.y < frame.midY ? .bottom : .top)
+        return edges
+    }
+
+    private func shouldAcceptInteractionButton(_ button: MouseButton) -> Bool {
+        state.activeInteractionButton == nil || state.activeInteractionButton == button
+    }
+
+    private func shouldSuppressRightMouseEvent(type: CGEventType) -> Bool {
+        guard state.activeInteractionButton == .right else { return false }
+        switch type {
+        case .rightMouseDown, .rightMouseDragged, .rightMouseUp:
+            return state.isResizing
+        default:
+            return false
         }
     }
 
     private func handleMouseDraggedFromTap(
         at location: CGPoint,
+        button: MouseButton,
         requirePressedButtonCheck: Bool = true
     ) {
         guard let controller else { return }
         guard controller.isEnabled else { return }
         if controller.isOverviewOpen() { return }
         if requirePressedButtonCheck {
-            guard pressedMouseButtonsProvider() & 1 != 0 else { return }
+            guard pressedMouseButtonsProvider() & button.pressedMask != 0 else { return }
         }
 
         if state.isMoving {
+            guard shouldAcceptInteractionButton(button) else { return }
             guard let engine = controller.niriEngine,
                   let wsId = controller.activeWorkspace()?.id
             else {
@@ -822,6 +892,7 @@ final class MouseEventHandler {
         }
 
         guard state.isResizing else { return }
+        guard shouldAcceptInteractionButton(button) else { return }
 
         guard let engine = controller.niriEngine,
               let monitor = controller.monitorForInteraction()
@@ -849,11 +920,12 @@ final class MouseEventHandler {
         }
     }
 
-    private func handleMouseUpFromTap(at location: CGPoint) {
+    private func handleMouseUpFromTap(at location: CGPoint, button: MouseButton) {
         guard let controller else { return }
         if controller.isOverviewOpen() { return }
 
         if state.isMoving {
+            guard shouldAcceptInteractionButton(button) else { return }
             if let engine = controller.niriEngine,
                let wsId = controller.activeWorkspace()?.id,
                let monitor = controller.workspaceManager.monitor(for: wsId)
@@ -879,11 +951,13 @@ final class MouseEventHandler {
             state.dragGhostController?.endDrag()
             state.isMoving = false
             state.moveIsInsertMode = false
+            state.activeInteractionButton = nil
             NSCursor.arrow.set()
             return
         }
 
         guard state.isResizing else { return }
+        guard shouldAcceptInteractionButton(button) else { return }
 
         if let engine = controller.niriEngine,
            let wsId = controller.activeWorkspace()?.id,
@@ -907,17 +981,9 @@ final class MouseEventHandler {
         }
 
         state.isResizing = false
-
-        if let engine = controller.niriEngine,
-           let wsId = controller.activeWorkspace()?.id,
-           let hitResult = engine.hitTestResize(point: location, in: wsId)
-        {
-            hitResult.edges.cursor.set()
-            state.currentHoveredEdges = hitResult.edges
-        } else {
-            NSCursor.arrow.set()
-            state.currentHoveredEdges = []
-        }
+        state.activeInteractionButton = nil
+        NSCursor.arrow.set()
+        state.currentHoveredEdges = []
     }
 
     private func handleScrollWheelFromTap(
@@ -1493,16 +1559,24 @@ final class MouseEventHandler {
         let location = event.location
         let screenLocation = ScreenCoordinateSpace.toAppKit(point: location)
         let modifiers = event.flags
-        let deltaX = resolvedWheelAxisDelta(
-            pointDelta: CGFloat(event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2)),
-            fixedPointDelta: CGFloat(event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2))
-        )
-        let deltaY = resolvedWheelAxisDelta(
-            pointDelta: CGFloat(event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)),
-            fixedPointDelta: CGFloat(event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1))
-        )
-        let momentumPhase = UInt32(event.getIntegerValueField(.scrollWheelEventMomentumPhase))
-        let phase = UInt32(event.getIntegerValueField(.scrollWheelEventScrollPhase))
+        let scrollPayload: (deltaX: CGFloat, deltaY: CGFloat, momentumPhase: UInt32, phase: UInt32)?
+        if type == .scrollWheel {
+            scrollPayload = (
+                resolvedWheelAxisDelta(
+                    pointDelta: CGFloat(event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2)),
+                    fixedPointDelta: CGFloat(event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2))
+                ),
+                resolvedWheelAxisDelta(
+                    pointDelta: CGFloat(event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)),
+                    fixedPointDelta: CGFloat(event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1))
+                ),
+                UInt32(event.getIntegerValueField(.scrollWheelEventMomentumPhase)),
+                UInt32(event.getIntegerValueField(.scrollWheelEventScrollPhase))
+            )
+        } else {
+            scrollPayload = nil
+        }
+        var suppressEvent = false
 
         MainActor.assumeIsolated {
             guard let handler = MouseEventHandler._instance else { return }
@@ -1510,18 +1584,31 @@ final class MouseEventHandler {
             case .mouseMoved:
                 handler.receiveTapMouseMoved(at: screenLocation)
             case .leftMouseDown:
-                handler.receiveTapMouseDown(at: screenLocation, modifiers: modifiers)
+                _ = handler.receiveTapMouseDown(at: screenLocation, modifiers: modifiers)
             case .leftMouseDragged:
                 handler.receiveTapMouseDragged(at: screenLocation)
             case .leftMouseUp:
                 handler.receiveTapMouseUp(at: screenLocation)
+            case .rightMouseDown:
+                suppressEvent = handler.receiveTapMouseDown(
+                    at: screenLocation,
+                    modifiers: modifiers,
+                    button: .right
+                )
+            case .rightMouseDragged:
+                suppressEvent = handler.shouldSuppressRightMouseEvent(type: type)
+                handler.receiveTapMouseDragged(at: screenLocation, button: .right)
+            case .rightMouseUp:
+                suppressEvent = handler.shouldSuppressRightMouseEvent(type: type)
+                handler.receiveTapMouseUp(at: screenLocation, button: .right)
             case .scrollWheel:
+                guard let scrollPayload else { return }
                 handler.receiveTapScrollWheel(
                     at: screenLocation,
-                    deltaX: deltaX,
-                    deltaY: deltaY,
-                    momentumPhase: momentumPhase,
-                    phase: phase,
+                    deltaX: scrollPayload.deltaX,
+                    deltaY: scrollPayload.deltaY,
+                    momentumPhase: scrollPayload.momentumPhase,
+                    phase: scrollPayload.phase,
                     modifiers: modifiers
                 )
             default:
@@ -1529,7 +1616,7 @@ final class MouseEventHandler {
             }
         }
 
-        return true
+        return suppressEvent
     }
 
     nonisolated static func resolvedWheelAxisDelta(pointDelta: CGFloat, fixedPointDelta: CGFloat) -> CGFloat {
