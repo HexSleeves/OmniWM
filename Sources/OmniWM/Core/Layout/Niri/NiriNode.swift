@@ -123,6 +123,15 @@ struct WindowSizeConstraints: Equatable {
         WindowSizeConstraints(minSize: minSize, maxSize: maxSize, isFixed: isFixed)
     }
 
+    func relaxedForResizePlaceholder() -> WindowSizeConstraints {
+        guard !isFixed else { return normalized() }
+        return WindowSizeConstraints(
+            minSize: .init(width: 1, height: 1),
+            maxSize: maxSize,
+            isFixed: false
+        )
+    }
+
     var hasMinWidth: Bool {
         minSize.width > 1
     }

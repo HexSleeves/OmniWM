@@ -365,7 +365,7 @@ enum NiriWindowMoveResult {
         )
 
         for window in snapshot.windows {
-            engine.updateWindowConstraints(for: window.token, constraints: window.constraints)
+            engine.updateWindowConstraints(for: window.token, constraints: window.layoutConstraints)
         }
 
         let selection = resolveSelection(
@@ -844,6 +844,19 @@ enum NiriWindowMoveResult {
             }
 
             guard let frame = frames[token] else { continue }
+            if window.needsResizePlaceholder(for: frame) {
+                diff.resizePlaceholders.append(
+                    .init(
+                        token: token,
+                        frame: frame,
+                        minimumSize: window.effectiveResizeMinimumSize,
+                        selected: selectedToken == token
+                            || confirmedFocusedToken == token
+                            || pendingFocusedToken == token
+                    )
+                )
+                continue
+            }
             let forceApply = if let node = engine.findNode(for: token) {
                 node.sizingMode == .fullscreen
             } else {
@@ -1369,6 +1382,9 @@ enum NiriWindowMoveResult {
         guard let controller, let engine = controller.niriEngine else { return }
 
         state.selectedNodeId = node.id
+        if !options.ensureVisible {
+            rebaseViewportAnchor(to: node, in: workspaceId, state: &state)
+        }
 
         if options.activateWindow {
             engine.activateWindow(node.id)
@@ -1428,6 +1444,80 @@ enum NiriWindowMoveResult {
                 controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
             }
         }
+    }
+
+    private func rebaseViewportAnchor(
+        to node: NiriNode,
+        in workspaceId: WorkspaceDescriptor.ID,
+        state: inout ViewportState
+    ) {
+        guard let controller, let engine = controller.niriEngine else { return }
+        guard let column = engine.column(of: node) else { return }
+        let columns = engine.columns(in: workspaceId)
+        guard let targetIndex = columns.firstIndex(where: { $0 === column }) else { return }
+        let currentIndex = min(max(state.activeColumnIndex, 0), columns.count - 1)
+        guard currentIndex != targetIndex else { return }
+
+        guard let monitor = controller.workspaceManager.monitor(for: workspaceId) else {
+            state.activeColumnIndex = targetIndex
+            return
+        }
+
+        let gap = CGFloat(controller.workspaceManager.gaps)
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
+        let orientation = engine.monitor(for: monitor.id)?.orientation
+            ?? controller.settings.effectiveOrientation(for: monitor)
+
+        switch orientation {
+        case .horizontal:
+            for column in columns where column.cachedWidth <= 0 {
+                column.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gap)
+            }
+            rebaseViewportAnchor(
+                from: currentIndex,
+                to: targetIndex,
+                columns: columns,
+                gap: gap,
+                state: &state,
+                sizeKeyPath: \.cachedWidth
+            )
+        case .vertical:
+            for column in columns where column.cachedHeight <= 0 {
+                column.resolveAndCacheHeight(workingAreaHeight: workingFrame.height, gaps: gap)
+            }
+            rebaseViewportAnchor(
+                from: currentIndex,
+                to: targetIndex,
+                columns: columns,
+                gap: gap,
+                state: &state,
+                sizeKeyPath: \.cachedHeight
+            )
+        }
+    }
+
+    private func rebaseViewportAnchor(
+        from currentIndex: Int,
+        to targetIndex: Int,
+        columns: [NiriContainer],
+        gap: CGFloat,
+        state: inout ViewportState,
+        sizeKeyPath: KeyPath<NiriContainer, CGFloat>
+    ) {
+        let previousPosition = state.containerPosition(
+            at: currentIndex,
+            containers: columns,
+            gap: gap,
+            sizeKeyPath: sizeKeyPath
+        )
+        let targetPosition = state.containerPosition(
+            at: targetIndex,
+            containers: columns,
+            gap: gap,
+            sizeKeyPath: sizeKeyPath
+        )
+        state.viewOffsetPixels.offset(delta: Double(previousPosition - targetPosition))
+        state.activeColumnIndex = targetIndex
     }
 
     func withNiriOperationContext(

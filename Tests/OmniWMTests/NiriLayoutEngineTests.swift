@@ -3792,6 +3792,91 @@ private func makeCenteredCrossMonitorFixture(
         #expect(!hasShowVisibilityChange(plan.diff.visibilityChanges, token: token))
     }
 
+    @Test @MainActor func tooSmallWindowEmitsResizePlaceholderInsteadOfFrameChangeInNiri() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for Niri resize placeholder test")
+            return
+        }
+
+        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 3902)
+        _ = controller.workspaceManager.setManagedFocus(token, in: workspaceId, onMonitor: monitor.id)
+        let constraints = WindowSizeConstraints(
+            minSize: CGSize(width: 2500, height: 1200),
+            maxSize: CGSize(width: 5000, height: 5000),
+            isFixed: false
+        )
+        controller.workspaceManager.setCachedConstraints(constraints, for: token)
+
+        let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        guard let plan = plans.first else {
+            Issue.record("Expected a Niri layout plan for resize placeholder test")
+            return
+        }
+
+        let placeholder = plan.diff.resizePlaceholders.first { $0.token == token }
+        #expect(placeholder != nil)
+        #expect(placeholder?.minimumSize == constraints.minSize)
+        #expect(placeholder?.selected == true)
+        #expect(!plan.diff.frameChanges.contains { $0.token == token })
+    }
+
+    @Test @MainActor func activatingResizePlaceholderSelectsNiriNodeForCommands() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for Niri resize placeholder selection test")
+            return
+        }
+
+        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+
+        let firstToken = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 3903)
+        let placeholderToken = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 3904)
+        let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(plans)
+
+        guard let engine = controller.niriEngine,
+              let firstNode = engine.findNode(for: firstToken),
+              let placeholderNode = engine.findNode(for: placeholderToken),
+              let placeholderFrame = placeholderNode.frame
+        else {
+            Issue.record("Missing Niri nodes for resize placeholder selection test")
+            return
+        }
+
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+            state.selectedNodeId = firstNode.id
+        }
+        controller.workspaceManager.setResizePlaceholderState(
+            ResizePlaceholderState(
+                workspaceId: workspaceId,
+                frame: placeholderFrame,
+                minimumSize: CGSize(width: placeholderFrame.width + 200, height: placeholderFrame.height + 100)
+            ),
+            for: placeholderToken
+        )
+
+        controller.activateResizePlaceholder(placeholderToken)
+
+        let selectedState = controller.workspaceManager.niriViewportState(for: workspaceId)
+        #expect(selectedState.selectedNodeId == placeholderNode.id)
+        #expect(controller.workspaceManager.focusedToken == placeholderToken)
+    }
+
     @Test @MainActor func snapshotPlanIncludesViewportPatchAndActivationForNewWindow() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
@@ -7213,6 +7298,92 @@ private func makeCenteredCrossMonitorFixture(
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == ghosttyWindow.token.windowId)
         #expect(lastAppliedBorderFrameForLayoutPlanTests(on: controller) == currentGhosttyFrame())
         #expect(observedReadCount == 0)
+    }
+
+    @Test @MainActor func activateNodeWithoutVisibilityRebasesActiveColumnPreservingViewportStart() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for activation rebase regression test")
+            return
+        }
+
+        controller.enableNiriLayout(
+            maxWindowsPerColumn: 1,
+            centerFocusedColumn: .never,
+            alwaysCenterSingleColumn: false
+        )
+        controller.updateNiriConfig(
+            maxVisibleColumns: 2,
+            centerFocusedColumn: .never,
+            alwaysCenterSingleColumn: false
+        )
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+
+        guard let engine = controller.niriEngine else {
+            Issue.record("Expected Niri engine for activation rebase regression test")
+            return
+        }
+
+        for windowId in 671 ... 675 {
+            _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: windowId)
+        }
+
+        let initialPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+
+        let gap = CGFloat(controller.workspaceManager.gaps)
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
+        let fixedWidth = (workingFrame.width - gap) / 2
+        for column in engine.columns(in: workspaceId) {
+            column.width = .fixed(fixedWidth)
+            column.cachedWidth = fixedWidth
+        }
+
+        let columns = engine.columns(in: workspaceId)
+        let windows = columns.compactMap(\.windowNodes.first)
+        guard windows.count >= 5 else {
+            Issue.record("Expected five columns for activation rebase regression test")
+            return
+        }
+
+        var state = controller.workspaceManager.niriViewportState(for: workspaceId)
+        state.selectedNodeId = windows[1].id
+        state.activeColumnIndex = 1
+        state.viewOffsetPixels = .static(
+            -state.columnX(at: 1, columns: columns, gap: gap)
+        )
+        let initialViewStart = viewportStart(for: state, columns: columns, gap: gap)
+
+        controller.niriLayoutHandler.activateNode(
+            windows[3],
+            in: workspaceId,
+            state: &state,
+            options: .init(
+                activateWindow: false,
+                ensureVisible: false,
+                updateTimestamp: false,
+                layoutRefresh: false,
+                axFocus: false,
+                startAnimation: false
+            )
+        )
+        _ = controller.workspaceManager.applySessionPatch(
+            .init(
+                workspaceId: workspaceId,
+                viewportState: state,
+                rememberedFocusToken: nil
+            )
+        )
+
+        let updatedState = controller.workspaceManager.niriViewportState(for: workspaceId)
+        #expect(updatedState.selectedNodeId == windows[3].id)
+        #expect(updatedState.activeColumnIndex == 3)
+        #expect(abs(viewportStart(for: updatedState, columns: columns, gap: gap) - initialViewStart) < 0.1)
     }
 
     @Test @MainActor func focusNeighborRoundTripUsesPaddedViewportOffsets() async throws {

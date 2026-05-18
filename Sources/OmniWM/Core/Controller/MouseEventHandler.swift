@@ -324,8 +324,8 @@ final class MouseEventHandler {
         button: MouseButton = .left
     ) -> Bool {
         guard !isInputSuppressed else { return false }
-        guard let controller else { return false }
-        if controller.isPointInOwnWindow(location) {
+        guard controller != nil else { return false }
+        if shouldBlockOwnWindowInput(at: location) {
             return false
         }
         return handleMouseDownFromTap(at: location, modifiers: modifiers, button: button)
@@ -333,7 +333,7 @@ final class MouseEventHandler {
 
     func dispatchMouseDragged(at location: CGPoint, button: MouseButton = .left) {
         guard !isInputSuppressed else { return }
-        if let controller, controller.isPointInOwnWindow(location) {
+        if shouldBlockOwnWindowInput(at: location) {
             cancelActiveMouseInteraction()
             return
         }
@@ -342,7 +342,7 @@ final class MouseEventHandler {
 
     func dispatchMouseUp(at location: CGPoint, button: MouseButton = .left) {
         guard !isInputSuppressed else { return }
-        if let controller, controller.isPointInOwnWindow(location) {
+        if shouldBlockOwnWindowInput(at: location) {
             cancelActiveMouseInteraction()
             return
         }
@@ -448,7 +448,7 @@ final class MouseEventHandler {
         modifiers: CGEventFlags,
         button: MouseButton = .left
     ) -> Bool {
-        if let controller, controller.isPointInOwnWindow(location) {
+        if shouldBlockOwnWindowInput(at: location) {
             dropPendingTapEvents()
         } else {
             flushPendingTapEvents(beforeImmediateDispatch: true)
@@ -462,7 +462,7 @@ final class MouseEventHandler {
     }
 
     func receiveTapMouseUp(at location: CGPoint, button: MouseButton = .left) {
-        if let controller, controller.isPointInOwnWindow(location) {
+        if shouldBlockOwnWindowInput(at: location) {
             dropPendingTapEvents()
         } else {
             flushPendingTapEvents(beforeImmediateDispatch: true)
@@ -498,7 +498,7 @@ final class MouseEventHandler {
             return
         }
         let location = ScreenCoordinateSpace.toAppKit(point: cgEvent.location)
-        if let controller, controller.isPointInOwnWindow(location) {
+        if shouldBlockOwnWindowInput(at: location) {
             dropPendingTapEvents()
         } else {
             flushPendingTapEvents(beforeImmediateDispatch: true)
@@ -512,7 +512,7 @@ final class MouseEventHandler {
             handleInputSuppressionBegan()
             return
         }
-        if let controller, controller.isPointInOwnWindow(snapshot.location) {
+        if shouldBlockOwnWindowInput(at: snapshot.location) {
             dropPendingTapEvents()
         } else {
             flushPendingTapEvents(beforeImmediateDispatch: true)
@@ -553,6 +553,30 @@ final class MouseEventHandler {
         }
 
         resetHoveredEdgesIfNeeded()
+    }
+
+    private func resizePlaceholderToken(at location: CGPoint) -> WindowToken? {
+        guard let controller else { return nil }
+        if let workspaceId = workspaceIdForPointer(at: location),
+           let token = controller.resizePlaceholderManager.token(at: location, in: workspaceId)
+        {
+            return token
+        }
+        return controller.resizePlaceholderManager.token(at: location)
+    }
+
+    private func workspaceIdForPointer(at location: CGPoint) -> WorkspaceDescriptor.ID? {
+        guard let controller else { return nil }
+        guard let monitor = location.monitorApproximation(in: controller.workspaceManager.monitors) else {
+            return controller.activeWorkspace()?.id
+        }
+        return controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+    }
+
+    private func shouldBlockOwnWindowInput(at location: CGPoint) -> Bool {
+        guard let controller else { return false }
+        guard controller.isPointInOwnWindow(location) else { return false }
+        return resizePlaceholderToken(at: location) == nil
     }
 
     private func resetHoveredEdgesIfNeeded() {
@@ -690,7 +714,7 @@ final class MouseEventHandler {
 
     private func replayQueuedMouseDragged(at location: CGPoint, button: MouseButton) {
         guard !isInputSuppressed else { return }
-        if let controller, controller.isPointInOwnWindow(location) {
+        if shouldBlockOwnWindowInput(at: location) {
             cancelActiveMouseInteraction()
             return
         }
@@ -705,7 +729,7 @@ final class MouseEventHandler {
         }
         if controller.isOverviewOpen() { return }
 
-        if controller.isPointInOwnWindow(location) {
+        if shouldBlockOwnWindowInput(at: location) {
             resetHoveredEdgesIfNeeded()
             return
         }
@@ -738,12 +762,12 @@ final class MouseEventHandler {
         guard controller.isEnabled else { return false }
         if controller.isOverviewOpen() { return false }
 
-        if controller.isPointInOwnWindow(location) {
+        if shouldBlockOwnWindowInput(at: location) {
             return false
         }
 
         guard let engine = controller.niriEngine,
-              let wsId = controller.activeWorkspace()?.id
+              let wsId = workspaceIdForPointer(at: location) ?? controller.activeWorkspace()?.id
         else {
             return false
         }
@@ -797,6 +821,34 @@ final class MouseEventHandler {
         }
 
         guard button == .right, modifiers.contains(.maskAlternate) else { return false }
+        if let placeholderToken = resizePlaceholderToken(at: location) {
+            guard let tiledWindow = engine.findNode(for: placeholderToken),
+                  let placeholderState = controller.workspaceManager.resizePlaceholderState(for: placeholderToken),
+                  placeholderState.workspaceId == wsId
+            else {
+                return false
+            }
+
+            let edges = resizeEdges(for: location, in: placeholderState.frame)
+            controller.selectResizePlaceholderForInteraction(placeholderToken)
+            let currentViewOffset = controller.workspaceManager.niriViewportState(for: wsId).viewOffsetPixels.current()
+            if engine.interactiveResizeBegin(
+                windowId: tiledWindow.id,
+                edges: edges,
+                startLocation: location,
+                in: wsId,
+                viewOffset: currentViewOffset
+            ) {
+                state.isResizing = true
+                state.activeInteractionButton = button
+                state.currentHoveredEdges = edges
+                controller.niriLayoutHandler.cancelActiveAnimations(for: wsId)
+                edges.cursor.set()
+                return true
+            }
+            return false
+        }
+
         guard let tiledWindow = engine.hitTestTiled(point: location, in: wsId),
               let frame = tiledWindow.renderedFrame ?? tiledWindow.frame
         else { return false }
@@ -997,7 +1049,7 @@ final class MouseEventHandler {
         guard let controller else { return }
         guard controller.isEnabled, controller.settings.scrollGestureEnabled else { return }
         if controller.isOverviewOpen() { return }
-        if controller.isPointInOwnWindow(location) { return }
+        if shouldBlockOwnWindowInput(at: location) { return }
         guard !state.isResizing, !state.isMoving else { return }
 
         let isTrackpad = momentumPhase != 0 || phase != 0
@@ -1136,7 +1188,7 @@ final class MouseEventHandler {
             abortActiveGestureIfNeeded()
             return
         }
-        if controller.isPointInOwnWindow(location) {
+        if shouldBlockOwnWindowInput(at: location) {
             abortActiveGestureIfNeeded()
             return
         }

@@ -4,12 +4,30 @@ import Foundation
 struct LayoutWindowSnapshot {
     let token: WindowToken
     let constraints: WindowSizeConstraints
+    let layoutConstraints: WindowSizeConstraints
     let hiddenState: WindowModel.HiddenState?
     let layoutReason: LayoutReason
     let showsNativeFullscreenPlaceholder: Bool
+    let resizePlaceholderState: ResizePlaceholderState?
 
     var isNativeFullscreenSuspended: Bool {
         layoutReason == .nativeFullscreen
+    }
+
+    var effectiveResizeMinimumSize: CGSize {
+        guard let resizePlaceholderState else { return constraints.minSize }
+        return CGSize(
+            width: max(constraints.minSize.width, resizePlaceholderState.minimumSize.width),
+            height: max(constraints.minSize.height, resizePlaceholderState.minimumSize.height)
+        )
+    }
+
+    func needsResizePlaceholder(for frame: CGRect) -> Bool {
+        guard layoutReason == .standard, !constraints.isFixed else { return false }
+        guard hiddenState == nil else { return false }
+        let minimumSize = effectiveResizeMinimumSize
+        let tolerance: CGFloat = 0.5
+        return frame.width + tolerance < minimumSize.width || frame.height + tolerance < minimumSize.height
     }
 }
 
@@ -93,6 +111,13 @@ struct NativeFullscreenPlaceholderChange {
     let selected: Bool
 }
 
+struct ResizePlaceholderChange {
+    let token: WindowToken
+    let frame: CGRect
+    let minimumSize: CGSize
+    let selected: Bool
+}
+
 enum BorderUpdateMode {
     case coordinated
     case direct
@@ -106,6 +131,7 @@ struct WorkspaceLayoutDiff {
     var visibilityChanges: [LayoutVisibilityChange] = []
     var restoreChanges: [LayoutRestoreChange] = []
     var nativeFullscreenPlaceholders: [NativeFullscreenPlaceholderChange] = []
+    var resizePlaceholders: [ResizePlaceholderChange] = []
     var focusedFrame: LayoutFocusedFrame?
     var borderMode: BorderUpdateMode = .coordinated
 }

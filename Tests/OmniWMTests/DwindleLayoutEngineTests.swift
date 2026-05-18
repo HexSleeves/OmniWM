@@ -436,6 +436,88 @@ private func configureWorkspacesAsDwindle(
         #expect(plan.diff.visibilityChanges.isEmpty)
     }
 
+    @Test @MainActor func tooSmallWindowEmitsResizePlaceholderInsteadOfFrameChangeInDwindle() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for Dwindle resize placeholder test")
+            return
+        }
+
+        configureWorkspaceAsDwindle(on: controller, workspaceId: workspaceId)
+        controller.enableDwindleLayout()
+        await waitForLayoutPlanRefreshWork(on: controller)
+
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 604)
+        _ = controller.workspaceManager.setManagedFocus(token, in: workspaceId, onMonitor: monitor.id)
+        let constraints = WindowSizeConstraints(
+            minSize: CGSize(width: 2500, height: 1200),
+            maxSize: CGSize(width: 5000, height: 5000),
+            isFixed: false
+        )
+        controller.workspaceManager.setCachedConstraints(constraints, for: token)
+
+        let plans = try await controller.dwindleLayoutHandler.layoutWithDwindleEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        guard let plan = plans.first else {
+            Issue.record("Expected a Dwindle layout plan for resize placeholder test")
+            return
+        }
+
+        let placeholder = plan.diff.resizePlaceholders.first { $0.token == token }
+        #expect(placeholder != nil)
+        #expect(placeholder?.minimumSize == constraints.minSize)
+        #expect(placeholder?.selected == true)
+        #expect(!plan.diff.frameChanges.contains { $0.token == token })
+    }
+
+    @Test @MainActor func activatingResizePlaceholderSelectsDwindleNodeForCommands() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for Dwindle resize placeholder selection test")
+            return
+        }
+
+        configureWorkspaceAsDwindle(on: controller, workspaceId: workspaceId)
+        controller.enableDwindleLayout()
+        await waitForLayoutPlanRefreshWork(on: controller)
+
+        let firstToken = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 605)
+        let placeholderToken = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 606)
+        let plans = try await controller.dwindleLayoutHandler.layoutWithDwindleEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(plans)
+
+        guard let engine = controller.dwindleEngine,
+              let firstNode = engine.findNode(for: firstToken),
+              let placeholderNode = engine.findNode(for: placeholderToken),
+              let placeholderFrame = placeholderNode.cachedFrame
+        else {
+            Issue.record("Missing Dwindle nodes for resize placeholder selection test")
+            return
+        }
+
+        engine.setSelectedNode(firstNode, in: workspaceId)
+        controller.workspaceManager.setResizePlaceholderState(
+            ResizePlaceholderState(
+                workspaceId: workspaceId,
+                frame: placeholderFrame,
+                minimumSize: CGSize(width: placeholderFrame.width + 200, height: placeholderFrame.height + 100)
+            ),
+            for: placeholderToken
+        )
+
+        controller.activateResizePlaceholder(placeholderToken)
+
+        #expect(engine.selectedNode(in: workspaceId)?.windowToken == placeholderToken)
+        #expect(controller.workspaceManager.focusedToken == placeholderToken)
+    }
+
     @Test @MainActor func relayoutPlanStartsAnimationWhenFramesChange() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,

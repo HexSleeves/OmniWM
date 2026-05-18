@@ -558,10 +558,12 @@ import QuartzCore
                 LayoutWindowSnapshot(
                     token: entry.token,
                     constraints: mergedConstraints,
+                    layoutConstraints: mergedConstraints.relaxedForResizePlaceholder(),
                     hiddenState: controller.workspaceManager.hiddenState(for: entry.token),
                     layoutReason: layoutReason,
                     showsNativeFullscreenPlaceholder: controller.workspaceManager
-                        .showsNativeFullscreenPlaceholder(for: entry.token)
+                        .showsNativeFullscreenPlaceholder(for: entry.token),
+                    resizePlaceholderState: controller.workspaceManager.resizePlaceholderState(for: entry.token)
                 )
             )
         }
@@ -1268,6 +1270,7 @@ import QuartzCore
                     wsForWindow = existingEntry.workspaceId
                     ruleEffects = existingEntry.ruleEffects
                 } else if appFullscreen {
+                    controller.clearResizePlaceholder(for: existingEntry.token)
                     _ = controller.workspaceManager.markNativeFullscreenSuspended(existingEntry.token)
                     let existingAssignment = controller.workspaceAssignment(pid: pid, windowId: winId)
                     wsForWindow = existingAssignment ?? defaultWorkspace
@@ -1335,6 +1338,7 @@ import QuartzCore
 
         for token in decisionBasedRemovals {
             controller.nativeFullscreenPlaceholderManager.remove(token)
+            controller.clearResizePlaceholder(for: token)
             controller.cleanupScratchpadWindowResourcesIfNeeded(for: token)
             _ = controller.workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
         }
@@ -1372,6 +1376,11 @@ import QuartzCore
 
         let scratchpadTokenBeforeRemove = controller.workspaceManager.scratchpadToken()
         controller.workspaceManager.removeMissing(keys: seenKeys, requiredConsecutiveMisses: 1)
+        let remainingTokens = Set(controller.workspaceManager.allEntries().map(\.token))
+        for entry in trackedEntries where !remainingTokens.contains(entry.token) {
+            controller.nativeFullscreenPlaceholderManager.remove(entry.token)
+            controller.clearResizePlaceholder(for: entry.token)
+        }
         if let scratchpadTokenBeforeRemove,
            controller.workspaceManager.entry(for: scratchpadTokenBeforeRemove) == nil
         {
@@ -2026,6 +2035,7 @@ import QuartzCore
         for snapshot in workspaceEntries where !activeWorkspaceIds.contains(snapshot.workspace.id) {
             for entry in snapshot.entries {
                 controller.nativeFullscreenPlaceholderManager.remove(entry.token)
+                controller.clearResizePlaceholder(for: entry.token)
             }
             guard let monitor = controller.workspaceManager.monitor(for: snapshot.workspace.id) else { continue }
             let preferredSide = preferredSides[monitor.id] ?? .right
@@ -2219,6 +2229,7 @@ import QuartzCore
     ) {
         guard let controller else { return }
         let frameEntry = (pid: entry.handle.pid, windowId: entry.windowId)
+        controller.clearResizePlaceholder(for: entry.token)
         switch resolveHideOperation(
             for: entry,
             monitor: monitor,
@@ -2789,6 +2800,196 @@ import QuartzCore
         controller?.appInfoCache.bundleId(for: pid) == "us.zoom.xos"
     }
 
+    func parkResizePlaceholderWindow(
+        _ entry: WindowModel.Entry,
+        monitor: Monitor,
+        currentFrameOverride: CGRect? = nil
+    ) -> Bool {
+        guard let controller else { return false }
+        let frameEntry = (pid: entry.pid, windowId: entry.windowId)
+        guard let currentFrame = currentFrameOverride
+            ?? fastFrame(for: entry.token, axRef: entry.axRef)
+            ?? controller.axManager.lastAppliedFrame(for: entry.windowId)
+            ?? (try? AXWindowService.frame(entry.axRef)),
+            let origin = liveFrameHideOrigin(
+                for: currentFrame,
+                monitor: monitor,
+                side: .right,
+                pid: entry.pid,
+                reason: .layoutTransient
+            )
+        else {
+            return false
+        }
+        controller.axManager.cancelPendingFrameJobs([frameEntry])
+        controller.axManager.suppressFrameWrites([frameEntry])
+        applyPositionPlans([WindowPositionPlan(entry: entry, origin: origin, frameSize: currentFrame.size)])
+        return true
+    }
+
+    func shouldObserveResizePlaceholderFallback(
+        entry: WindowModel.Entry,
+        targetFrame: CGRect
+    ) -> Bool {
+        guard controller?.workspaceManager.resizePlaceholderState(for: entry.token) == nil else { return false }
+        guard entry.layoutReason == .standard else { return false }
+        guard controller?.workspaceManager.hiddenState(for: entry.token) == nil else { return false }
+        if let constraints = controller?.workspaceManager.cachedConstraints(for: entry.token),
+           targetFrameIsBelowMinimumSize(targetFrame, minimumSize: constraints.minSize)
+        {
+            return true
+        }
+        if let currentFrame = fastFrame(for: entry.token, axRef: entry.axRef) {
+            return targetSizeIsSmallerThanObservedSize(targetFrame.size, observedSize: currentFrame.size)
+        }
+        if let lastAppliedFrame = controller?.axManager.lastAppliedFrame(for: entry.windowId),
+           !targetSizeIsSmallerThanObservedSize(targetFrame.size, observedSize: lastAppliedFrame.size)
+        {
+            return false
+        }
+        return true
+    }
+
+    func handleResizePlaceholderFrameApplyResult(
+        _ result: AXFrameApplyResult,
+        workspaceId: WorkspaceDescriptor.ID,
+        monitor: Monitor
+    ) {
+        guard let controller,
+              let entry = controller.workspaceManager.entry(for: .init(pid: result.pid, windowId: result.windowId)),
+              entry.workspaceId == workspaceId,
+              entry.layoutReason == .standard,
+              controller.workspaceManager.hiddenState(for: entry.token) == nil
+        else {
+            return
+        }
+
+        if let confirmedFrame = result.confirmedFrame {
+            controller.axManager.confirmFrameWrite(for: result.windowId, frame: confirmedFrame)
+            return
+        }
+
+        if liveFrameMatchesTarget(for: entry, targetFrame: result.targetFrame) {
+            controller.axManager.confirmFrameWrite(for: result.windowId, frame: result.targetFrame)
+            return
+        }
+
+        guard let minimumSize = resizePlaceholderFallbackMinimumSize(for: result, entry: entry) else { return }
+
+        let observedFrame = result.writeResult.observedFrame
+        guard parkResizePlaceholderWindow(entry, monitor: monitor, currentFrameOverride: observedFrame) else {
+            controller.clearResizePlaceholder(for: entry.token)
+            return
+        }
+        let state = ResizePlaceholderState(
+            workspaceId: entry.workspaceId,
+            frame: result.targetFrame,
+            minimumSize: minimumSize
+        )
+        controller.workspaceManager.setResizePlaceholderState(state, for: entry.token)
+
+        let appInfo = controller.appInfoCache.info(for: entry.pid)
+        controller.resizePlaceholderManager.update(
+            ResizePlaceholderUpdate(
+                token: entry.token,
+                workspaceId: entry.workspaceId,
+                frame: result.targetFrame,
+                selected: controller.workspaceManager.focusedToken == entry.token
+                    || controller.workspaceManager.pendingFocusedToken == entry.token,
+                appName: appInfo?.name,
+                icon: appInfo?.icon
+            )
+        )
+        if let target = controller.managedKeyboardFocusTarget(for: entry.token) {
+            _ = controller.renderKeyboardFocusBorder(
+                for: target,
+                preferredFrame: result.targetFrame,
+                policy: .direct,
+                forceOrdering: true
+            )
+        }
+    }
+
+    private func resizePlaceholderFallbackMinimumSize(
+        for result: AXFrameApplyResult,
+        entry: WindowModel.Entry
+    ) -> CGSize? {
+        guard let failureReason = result.writeResult.failureReason else { return nil }
+
+        switch failureReason {
+        case .sizeWriteFailed:
+            if let constraints = controller?.workspaceManager.cachedConstraints(for: entry.token),
+               targetFrameIsBelowMinimumSize(result.targetFrame, minimumSize: constraints.minSize)
+            {
+                return constraints.minSize
+            }
+            guard let observedSize = result.writeResult.observedFrame?.size,
+                  targetSizeIsSmallerThanObservedSize(result.targetFrame.size, observedSize: observedSize)
+            else {
+                return nil
+            }
+            let constraints = resizePlaceholderFallbackConstraints(for: entry, observedFrame: result.writeResult.observedFrame)
+            return fallbackResizeMinimumSize(
+                targetSize: result.targetFrame.size,
+                observedSize: observedSize,
+                constraints: constraints
+            )
+        case .verificationMismatch:
+            if let observedSize = result.writeResult.observedFrame?.size,
+               targetSizeIsSmallerThanObservedSize(result.targetFrame.size, observedSize: observedSize),
+               let constraints = controller?.workspaceManager.cachedConstraints(for: entry.token),
+               targetFrameIsBelowMinimumSize(result.targetFrame, minimumSize: constraints.minSize)
+            {
+                return constraints.minSize
+            }
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    private func resizePlaceholderFallbackConstraints(
+        for entry: WindowModel.Entry,
+        observedFrame: CGRect?
+    ) -> WindowSizeConstraints {
+        if let constraints = controller?.workspaceManager.cachedConstraints(for: entry.token) {
+            return constraints
+        }
+        let currentSize = observedFrame?.size ?? fastFrame(for: entry.token, axRef: entry.axRef)?.size
+        let constraints = AXWindowService.sizeConstraints(entry.axRef, currentSize: currentSize)
+        controller?.workspaceManager.setCachedConstraints(constraints, for: entry.token)
+        return constraints
+    }
+
+    private func liveFrameMatchesTarget(for entry: WindowModel.Entry, targetFrame: CGRect) -> Bool {
+        guard let frame = fastFrame(for: entry.token, axRef: entry.axRef) else { return false }
+        return frame.approximatelyEqual(to: targetFrame, tolerance: 1.0)
+    }
+
+    private func targetFrameIsBelowMinimumSize(_ frame: CGRect, minimumSize: CGSize) -> Bool {
+        targetSizeIsSmallerThanObservedSize(frame.size, observedSize: minimumSize)
+    }
+
+    private func targetSizeIsSmallerThanObservedSize(_ targetSize: CGSize, observedSize: CGSize) -> Bool {
+        targetSize.width + 0.5 < observedSize.width
+            || targetSize.height + 0.5 < observedSize.height
+    }
+
+    private func fallbackResizeMinimumSize(
+        targetSize: CGSize,
+        observedSize: CGSize?,
+        constraints: WindowSizeConstraints
+    ) -> CGSize {
+        let observedSize = observedSize ?? targetSize
+        let width = targetSize.width + 0.5 < observedSize.width
+            ? max(constraints.minSize.width, observedSize.width.rounded(.up))
+            : constraints.minSize.width
+        let height = targetSize.height + 0.5 < observedSize.height
+            ? max(constraints.minSize.height, observedSize.height.rounded(.up))
+            : constraints.minSize.height
+        return CGSize(width: width, height: height)
+    }
+
     func updateWindowConstraints(
         in wsId: WorkspaceDescriptor.ID,
         updateEngine: (WindowToken, WindowSizeConstraints) -> Void
@@ -2863,6 +3064,51 @@ final class LayoutDiffExecutor {
         }
         controller.nativeFullscreenPlaceholderManager.update(
             placeholders: placeholderUpdates,
+            in: plan.workspaceId
+        )
+
+        let resizePlaceholderUpdates = diff.resizePlaceholders.compactMap { change -> ResizePlaceholderUpdate? in
+            guard let entry = resolveEntry(for: change.token),
+                  entry.workspaceId == plan.workspaceId,
+                  entry.layoutReason == .standard,
+                  controller.workspaceManager.hiddenState(for: change.token) == nil
+            else {
+                return nil
+            }
+            if controller.workspaceManager.resizePlaceholderState(for: change.token) == nil {
+                guard refreshController.parkResizePlaceholderWindow(entry, monitor: monitor) else {
+                    controller.clearResizePlaceholder(for: change.token)
+                    return nil
+                }
+            }
+            controller.workspaceManager.setResizePlaceholderState(
+                ResizePlaceholderState(
+                    workspaceId: plan.workspaceId,
+                    frame: change.frame,
+                    minimumSize: change.minimumSize
+                ),
+                for: change.token
+            )
+            let appInfo = controller.appInfoCache.info(for: entry.pid)
+            return ResizePlaceholderUpdate(
+                token: change.token,
+                workspaceId: plan.workspaceId,
+                frame: change.frame,
+                selected: change.selected,
+                appName: appInfo?.name,
+                icon: appInfo?.icon
+            )
+        }
+        let resizePlaceholderTokens = Set(resizePlaceholderUpdates.map(\.token))
+        if !resizePlaceholderUpdates.isEmpty || controller.resizePlaceholderManager.hasPlaceholders(in: plan.workspaceId) {
+            for (token, _) in controller.workspaceManager.resizePlaceholderStates(in: plan.workspaceId)
+                where !resizePlaceholderTokens.contains(token)
+            {
+                controller.clearResizePlaceholder(for: token)
+            }
+        }
+        controller.resizePlaceholderManager.update(
+            placeholders: resizePlaceholderUpdates,
             in: plan.workspaceId
         )
 
@@ -3028,13 +3274,15 @@ final class LayoutDiffExecutor {
 
         var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
         frameUpdates.reserveCapacity(diff.frameChanges.count)
+        var resizeProbeFrameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
         var revealFrameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
         revealFrameUpdates.reserveCapacity(pendingRevealTokens.count)
 
         for change in diff.frameChanges {
             guard !hiddenTokens.contains(change.token),
                   let entry = resolveEntry(for: change.token),
-                  !blockedRevealTokens.contains(change.token)
+                  !blockedRevealTokens.contains(change.token),
+                  !resizePlaceholderTokens.contains(change.token)
             else {
                 continue
             }
@@ -3048,12 +3296,29 @@ final class LayoutDiffExecutor {
                 if change.forceApply {
                     controller.axManager.forceApplyNextFrame(for: entry.windowId)
                 }
-                frameUpdates.append((entry.pid, entry.windowId, change.frame))
+                if refreshController.shouldObserveResizePlaceholderFallback(entry: entry, targetFrame: change.frame) {
+                    resizeProbeFrameUpdates.append((entry.pid, entry.windowId, change.frame))
+                } else {
+                    frameUpdates.append((entry.pid, entry.windowId, change.frame))
+                }
             }
         }
 
         if !frameUpdates.isEmpty {
             controller.axManager.applyFramesParallel(frameUpdates)
+        }
+
+        if !resizeProbeFrameUpdates.isEmpty {
+            controller.axManager.applyFramesParallel(
+                resizeProbeFrameUpdates,
+                terminalObserver: { [weak refreshController] result in
+                    refreshController?.handleResizePlaceholderFrameApplyResult(
+                        result,
+                        workspaceId: plan.workspaceId,
+                        monitor: monitor
+                    )
+                }
+            )
         }
 
         if !revealFrameUpdates.isEmpty {
