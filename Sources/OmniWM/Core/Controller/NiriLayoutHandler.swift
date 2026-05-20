@@ -1382,7 +1382,7 @@ enum NiriWindowMoveResult {
         guard let controller, let engine = controller.niriEngine else { return }
 
         state.selectedNodeId = node.id
-        if !options.ensureVisible {
+        if !options.ensureVisible, !options.preserveViewportAnchor {
             rebaseViewportAnchor(to: node, in: workspaceId, state: &state)
         }
 
@@ -1767,6 +1767,7 @@ enum NiriWindowMoveResult {
 struct NodeActivationOptions {
     var activateWindow: Bool = true
     var ensureVisible: Bool = true
+    var preserveViewportAnchor: Bool = false
     var updateTimestamp: Bool = true
     var layoutRefresh: Bool = true
     var axFocus: Bool = true

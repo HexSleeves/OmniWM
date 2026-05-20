@@ -1253,7 +1253,13 @@ final class AXEventHandler: CGSEventDelegate {
             controller.niriLayoutHandler.activateNode(
                 node, in: wsId, state: &state,
                 options: preserveActiveViewport
-                    ? .init(ensureVisible: false, layoutRefresh: false, axFocus: false, startAnimation: false)
+                    ? .init(
+                        ensureVisible: false,
+                        preserveViewportAnchor: true,
+                        layoutRefresh: false,
+                        axFocus: false,
+                        startAnimation: false
+                    )
                     : .init(layoutRefresh: isWorkspaceActive, axFocus: false)
             )
             _ = controller.workspaceManager.applySessionPatch(

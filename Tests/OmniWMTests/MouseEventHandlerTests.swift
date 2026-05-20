@@ -1996,6 +1996,8 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
 
         guard let secondNode = engine.findNode(for: secondHandle),
+              let secondColumn = engine.column(of: secondNode),
+              let secondColumnIndex = engine.columnIndex(of: secondColumn, in: workspaceId),
               let hoveredFrame = secondNode.frame
         else {
             Issue.record("Missing second node frame for Niri hover focus-follow viewport regression test")
@@ -2013,7 +2015,7 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
         #expect(controller.workspaceManager.focusedHandle == firstHandle)
         #expect(controller.workspaceManager.pendingFocusedHandle == secondHandle)
         #expect(updatedState.selectedNodeId == secondNode.id)
-        #expect(updatedState.activeColumnIndex == initialState.activeColumnIndex)
+        #expect(updatedState.activeColumnIndex == secondColumnIndex)
         #expect(updatedState.viewOffsetPixels.target() == initialState.viewOffsetPixels.target())
         #expect(controller.niriLayoutHandler.scrollAnimationByDisplay[monitor.displayId] == nil)
     }
