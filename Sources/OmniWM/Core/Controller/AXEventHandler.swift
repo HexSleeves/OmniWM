@@ -38,6 +38,17 @@ struct NiriCreateFocusTraceEvent: Equatable {
     enum Kind: Equatable {
         case createSeen(windowId: UInt32)
         case createRetryScheduled(windowId: UInt32, pid: pid_t, attempt: Int)
+        case createPlacementResolved(
+            token: WindowToken,
+            workspaceId: WorkspaceDescriptor.ID,
+            pendingWorkspaceId: WorkspaceDescriptor.ID?,
+            pendingMonitorId: Monitor.ID?,
+            focusedWorkspaceId: WorkspaceDescriptor.ID?,
+            focusedMonitorId: Monitor.ID?,
+            nativeSpaceMonitorId: Monitor.ID?,
+            frameMonitorId: Monitor.ID?,
+            interactionMonitorId: Monitor.ID?
+        )
         case candidateTracked(token: WindowToken, workspaceId: WorkspaceDescriptor.ID)
         case relayoutActivatedWindow(token: WindowToken, workspaceId: WorkspaceDescriptor.ID)
         case pendingFocusStarted(requestId: UInt64, token: WindowToken, workspaceId: WorkspaceDescriptor.ID)
@@ -67,7 +78,12 @@ struct NiriCreateFocusTraceEvent: Equatable {
 }
 
 struct WindowCreatePlacementContext: Equatable {
-    let monitorHintId: Monitor.ID?
+    let nativeSpaceMonitorId: Monitor.ID?
+    let pendingFocusedWorkspaceId: WorkspaceDescriptor.ID?
+    let pendingFocusedMonitorId: Monitor.ID?
+    let focusedWorkspaceId: WorkspaceDescriptor.ID?
+    let focusedMonitorId: Monitor.ID?
+    let interactionMonitorId: Monitor.ID?
     let createdAt: Date
 }
 
@@ -78,6 +94,18 @@ extension NiriCreateFocusTraceEvent: CustomStringConvertible {
             "create_seen window=\(windowId)"
         case let .createRetryScheduled(windowId, pid, attempt):
             "create_retry_scheduled window=\(windowId) pid=\(pid) attempt=\(attempt)"
+        case let .createPlacementResolved(
+            token,
+            workspaceId,
+            pendingWorkspaceId,
+            pendingMonitorId,
+            focusedWorkspaceId,
+            focusedMonitorId,
+            nativeSpaceMonitorId,
+            frameMonitorId,
+            interactionMonitorId
+        ):
+            "create_placement_resolved token=\(token) workspace=\(workspaceId.uuidString) pending_workspace=\(pendingWorkspaceId?.uuidString ?? "nil") pending_monitor=\(String(describing: pendingMonitorId)) focused_workspace=\(focusedWorkspaceId?.uuidString ?? "nil") focused_monitor=\(String(describing: focusedMonitorId)) native_monitor=\(String(describing: nativeSpaceMonitorId)) frame_monitor=\(String(describing: frameMonitorId)) interaction_monitor=\(String(describing: interactionMonitorId))"
         case let .candidateTracked(token, workspaceId):
             "candidate_tracked token=\(token) workspace=\(workspaceId.uuidString)"
         case let .relayoutActivatedWindow(token, workspaceId):
@@ -1658,15 +1686,30 @@ final class AXEventHandler: CGSEventDelegate {
             mode: trackedMode,
             facts: evaluation.facts
         )
+        let inheritTrackedParentWorkspace = controller.shouldInheritTrackedParentWorkspace(for: evaluation)
+        let placementFrame = evaluation.facts.windowServer?.frame ?? windowInfo?.frame
         let workspaceId = controller.resolveWorkspaceForNewWindow(
             workspaceName: evaluation.decision.workspaceName,
             axRef: axRef,
             pid: token.pid,
             parentWindowId: evaluation.facts.windowServer?.parentId,
+            inheritTrackedParentWorkspace: inheritTrackedParentWorkspace,
+            preferSameAppSiblingWorkspace: controller.shouldPreferSameAppSiblingWorkspace(
+                for: evaluation,
+                inheritTrackedParentWorkspace: inheritTrackedParentWorkspace
+            ),
             structuralReplacementWorkspaceId: structuralReplacementWorkspaceId,
+            restrictWorkspaceRuleToPlacementMonitor: trackedMode != .floating,
             createPlacementContext: createPlacementContext,
-            windowFrame: evaluation.facts.windowServer?.frame ?? windowInfo?.frame,
+            windowFrame: placementFrame,
             fallbackWorkspaceId: controller.activeWorkspace()?.id
+        )
+        recordCreatePlacementTrace(
+            token: token,
+            workspaceId: workspaceId,
+            createPlacementContext: createPlacementContext,
+            windowFrame: placementFrame,
+            controller: controller
         )
 
         return PreparedCreate(
@@ -1682,6 +1725,38 @@ final class AXEventHandler: CGSEventDelegate {
             ),
             hasStructuralReplacementWorkspaceMatch: structuralReplacementWorkspaceId != nil
         )
+    }
+
+    private func recordCreatePlacementTrace(
+        token: WindowToken,
+        workspaceId: WorkspaceDescriptor.ID,
+        createPlacementContext: WindowCreatePlacementContext?,
+        windowFrame: CGRect?,
+        controller: WMController
+    ) {
+        recordNiriCreateFocusTrace(
+            .init(
+                kind: .createPlacementResolved(
+                    token: token,
+                    workspaceId: workspaceId,
+                    pendingWorkspaceId: createPlacementContext?.pendingFocusedWorkspaceId,
+                    pendingMonitorId: createPlacementContext?.pendingFocusedMonitorId,
+                    focusedWorkspaceId: createPlacementContext?.focusedWorkspaceId,
+                    focusedMonitorId: createPlacementContext?.focusedMonitorId,
+                    nativeSpaceMonitorId: createPlacementContext?.nativeSpaceMonitorId,
+                    frameMonitorId: placementTraceMonitorId(for: windowFrame, controller: controller),
+                    interactionMonitorId: createPlacementContext?.interactionMonitorId
+                )
+            )
+        )
+    }
+
+    private func placementTraceMonitorId(
+        for frame: CGRect?,
+        controller: WMController
+    ) -> Monitor.ID? {
+        guard let frame, !frame.isNull, !frame.isEmpty else { return nil }
+        return frame.center.monitorApproximation(in: controller.workspaceManager.monitors)?.id
     }
 
     private func prepareDestroyCandidate(
@@ -1861,6 +1936,7 @@ final class AXEventHandler: CGSEventDelegate {
             for create in burst.creates {
                 guard destroy.candidate.token != create.candidate.token,
                       managedReplacementMetadataMatches(
+                          oldToken: destroy.candidate.token,
                           old: destroy.candidate.replacementMetadata,
                           new: create.candidate.replacementMetadata
                       )
@@ -1926,10 +2002,15 @@ final class AXEventHandler: CGSEventDelegate {
             subrole: facts.ax.subrole,
             title: facts.ax.title,
             windowLevel: facts.windowServer?.level,
-            parentWindowId: facts.windowServer?.parentId,
+            parentWindowId: normalizedParentWindowId(facts.windowServer?.parentId),
             frame: facts.windowServer?.frame,
             transientWindowServerEvidence: facts.windowServer?.hasTransientSurfaceEvidence ?? false
         )
+    }
+
+    private func normalizedParentWindowId(_ parentWindowId: UInt32?) -> UInt32? {
+        guard let parentWindowId, parentWindowId != 0 else { return nil }
+        return parentWindowId
     }
 
     private func cachedManagedReplacementMetadata(
@@ -1961,8 +2042,10 @@ final class AXEventHandler: CGSEventDelegate {
         var metadata = metadata
         metadata.title = windowInfo.title ?? metadata.title
         metadata.windowLevel = windowInfo.level
-        metadata.parentWindowId = windowInfo.parentId == 0 ? metadata.parentWindowId : windowInfo.parentId
-        metadata.frame = windowInfo.frame
+        metadata.parentWindowId = normalizedParentWindowId(windowInfo.parentId) ?? metadata.parentWindowId
+        if !windowInfo.frame.isNull, !windowInfo.frame.isEmpty {
+            metadata.frame = windowInfo.frame
+        }
         return metadata
     }
 
@@ -2036,16 +2119,16 @@ final class AXEventHandler: CGSEventDelegate {
             return true
         }
 
-        func matches(_ oldMetadata: ManagedReplacementMetadata) -> Bool {
+        func matches(_ oldMetadata: ManagedReplacementMetadata, oldToken: WindowToken) -> Bool {
             var newMetadata = baseMetadata
             newMetadata.workspaceId = oldMetadata.workspaceId
-            return managedReplacementMetadataMatches(old: oldMetadata, new: newMetadata)
+            return managedReplacementMetadataMatches(oldToken: oldToken, old: oldMetadata, new: newMetadata)
         }
 
         for burst in pendingManagedReplacementBursts.values {
             for destroy in burst.destroys where destroy.candidate.token.pid == token.pid {
                 let metadata = destroy.candidate.replacementMetadata
-                if matches(metadata),
+                if matches(metadata, oldToken: destroy.candidate.token),
                    !recordMatch(token: destroy.candidate.token, workspaceId: metadata.workspaceId)
                 {
                     return nil
@@ -2058,16 +2141,21 @@ final class AXEventHandler: CGSEventDelegate {
                 for: entry,
                 fallbackBundleId: bundleId
             )
-            let metadata = if managedReplacementCorrelationPolicy(for: cachedMetadata) != nil {
-                cachedMetadata
-            } else {
-                overlayWindowServerInfo(
-                    resolveWindowInfo(UInt32(entry.windowId)),
-                    onto: cachedMetadata
-                )
+            if matches(cachedMetadata, oldToken: entry.token),
+               !recordMatch(token: entry.token, workspaceId: cachedMetadata.workspaceId)
+            {
+                return nil
             }
-            if matches(metadata),
-               !recordMatch(token: entry.token, workspaceId: metadata.workspaceId)
+            if match?.token == entry.token {
+                continue
+            }
+            let liveMetadata = overlayWindowServerInfo(
+                UInt32(exactly: entry.windowId).flatMap(resolveWindowInfo),
+                onto: cachedMetadata
+            )
+            if liveMetadata != cachedMetadata,
+               matches(liveMetadata, oldToken: entry.token),
+               !recordMatch(token: entry.token, workspaceId: liveMetadata.workspaceId)
             {
                 return nil
             }
@@ -2087,6 +2175,7 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     private func managedReplacementMetadataMatches(
+        oldToken: WindowToken,
         old: ManagedReplacementMetadata,
         new: ManagedReplacementMetadata
     ) -> Bool {
@@ -2101,7 +2190,7 @@ final class AXEventHandler: CGSEventDelegate {
             return false
         }
 
-        return managedReplacementStructuralAnchorsMatch(old: old, new: new)
+        return managedReplacementStructuralAnchorsMatch(oldToken: oldToken, old: old, new: new)
     }
 
     private func managedReplacementHasStructuralAnchor(
@@ -2125,29 +2214,23 @@ final class AXEventHandler: CGSEventDelegate {
     }
 
     private func managedReplacementStructuralAnchorsMatch(
+        oldToken: WindowToken,
         old: ManagedReplacementMetadata,
         new: ManagedReplacementMetadata
     ) -> Bool {
-        var hasStructuralEvidence = false
-        if let oldParentWindowId = old.parentWindowId,
-           let newParentWindowId = new.parentWindowId
-        {
-            guard oldParentWindowId == newParentWindowId else {
-                return false
-            }
-            hasStructuralEvidence = true
-        }
+        let framesClose = framesAreCloseForManagedReplacement(old.frame, new.frame)
+        let hasFrameEvidence = old.frame != nil && new.frame != nil
 
-        if let oldFrame = old.frame,
-           let newFrame = new.frame
-        {
-            guard framesAreCloseForManagedReplacement(oldFrame, newFrame) else {
-                return false
-            }
-            hasStructuralEvidence = true
+        switch (old.parentWindowId, new.parentWindowId) {
+        case let (oldParentWindowId?, newParentWindowId?) where oldParentWindowId == newParentWindowId:
+            return hasFrameEvidence ? framesClose : true
+        case let (_, newParentWindowId?) where UInt32(exactly: oldToken.windowId) == newParentWindowId:
+            return framesClose
+        case (_?, _?):
+            return false
+        default:
+            return framesClose
         }
-
-        return hasStructuralEvidence
     }
 
     private func framesAreCloseForManagedReplacement(_ lhs: CGRect?, _ rhs: CGRect?) -> Bool {
@@ -2434,14 +2517,41 @@ final class AXEventHandler: CGSEventDelegate {
             return
         }
 
-        let monitorHintId = resolveCreatePlacementMonitorHint(spaceId: spaceId, controller: controller)
+        let focusedWorkspaceId = resolveFocusedPlacementWorkspaceId(controller: controller)
         createPlacementContextsByWindowId[windowId] = WindowCreatePlacementContext(
-            monitorHintId: monitorHintId,
+            nativeSpaceMonitorId: resolveNativeSpacePlacementMonitorId(spaceId: spaceId, controller: controller),
+            pendingFocusedWorkspaceId: controller.workspaceManager.pendingFocusedWorkspaceId,
+            pendingFocusedMonitorId: resolvePendingFocusedPlacementMonitorId(controller: controller),
+            focusedWorkspaceId: focusedWorkspaceId,
+            focusedMonitorId: focusedWorkspaceId.flatMap {
+                controller.workspaceManager.monitorId(for: $0)
+            },
+            interactionMonitorId: controller.workspaceManager.interactionMonitorId,
             createdAt: Date()
         )
     }
 
-    private func resolveCreatePlacementMonitorHint(
+    private func resolvePendingFocusedPlacementMonitorId(
+        controller: WMController
+    ) -> Monitor.ID? {
+        controller.workspaceManager.pendingFocusedMonitorId
+            ?? controller.workspaceManager.pendingFocusedWorkspaceId.flatMap {
+                controller.workspaceManager.monitorId(for: $0)
+            }
+    }
+
+    private func resolveFocusedPlacementWorkspaceId(
+        controller: WMController
+    ) -> WorkspaceDescriptor.ID? {
+        guard let focusedToken = controller.workspaceManager.focusedToken,
+              let workspaceId = controller.workspaceManager.workspace(for: focusedToken)
+        else {
+            return nil
+        }
+        return workspaceId
+    }
+
+    private func resolveNativeSpacePlacementMonitorId(
         spaceId: UInt64,
         controller: WMController
     ) -> Monitor.ID? {
@@ -2455,16 +2565,10 @@ final class AXEventHandler: CGSEventDelegate {
         guard let displayId,
               let monitor = monitors.first(where: { $0.displayId == displayId })
         else {
-            return fallbackCreatePlacementMonitorHint(controller: controller)
+            return nil
         }
 
         return monitor.id
-    }
-
-    private func fallbackCreatePlacementMonitorHint(
-        controller: WMController
-    ) -> Monitor.ID? {
-        controller.monitorForInteraction()?.id
     }
 
     private func discardCreatePlacementContext(windowId: UInt32) {

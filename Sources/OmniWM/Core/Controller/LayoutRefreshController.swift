@@ -1178,6 +1178,7 @@ import QuartzCore
                 axRef: ax,
                 existingEntry: existingEntry,
                 fallbackWorkspaceId: focusedWorkspaceId,
+                restrictWorkspaceRuleToPlacementMonitor: false,
                 createPlacementContext: createPlacementContext
             )
             if controller.workspaceAssignment(pid: pid, windowId: winId) == nil,
@@ -1246,6 +1247,7 @@ import QuartzCore
                 existingEntry: existingEntry,
                 fallbackWorkspaceId: focusedWorkspaceId,
                 structuralReplacementWorkspaceId: structuralReplacementWorkspaceId,
+                restrictWorkspaceRuleToPlacementMonitor: trackedMode != .floating,
                 createPlacementContext: createPlacementContext
             )
             if controller.workspaceAssignment(pid: pid, windowId: winId) == nil,
@@ -1287,6 +1289,11 @@ import QuartzCore
             }
             let oldMode = existingEntry?.mode
             let admittedMode = oldMode ?? trackedMode
+            let parentWindowId = if let windowServer = evaluation.facts.windowServer {
+                windowServer.parentId == 0 ? nil : windowServer.parentId
+            } else {
+                existingEntry?.managedReplacementMetadata?.parentWindowId
+            }
             let managedReplacementMetadata = ManagedReplacementMetadata(
                 bundleId: evaluation.facts.ax.bundleId ?? bundleId ?? existingEntry?.managedReplacementMetadata?
                     .bundleId,
@@ -1297,8 +1304,7 @@ import QuartzCore
                 title: evaluation.facts.ax.title ?? existingEntry?.managedReplacementMetadata?.title,
                 windowLevel: evaluation.facts.windowServer?.level ?? existingEntry?.managedReplacementMetadata?
                     .windowLevel,
-                parentWindowId: evaluation.facts.windowServer?.parentId ?? existingEntry?.managedReplacementMetadata?
-                    .parentWindowId,
+                parentWindowId: parentWindowId,
                 frame: evaluation.facts.windowServer?.frame ?? existingEntry?.managedReplacementMetadata?.frame,
                 transientWindowServerEvidence: existingEntry?.managedReplacementMetadata?
                     .transientWindowServerEvidence == true

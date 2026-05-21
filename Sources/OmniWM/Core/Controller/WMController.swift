@@ -874,7 +874,10 @@ final class WMController {
         axRef: AXWindowRef,
         pid: pid_t,
         parentWindowId: UInt32? = nil,
+        inheritTrackedParentWorkspace: Bool = false,
+        preferSameAppSiblingWorkspace: Bool = false,
         structuralReplacementWorkspaceId: WorkspaceDescriptor.ID? = nil,
+        restrictWorkspaceRuleToPlacementMonitor: Bool = true,
         createPlacementContext: WindowCreatePlacementContext? = nil,
         windowFrame: CGRect? = nil,
         fallbackWorkspaceId: WorkspaceDescriptor.ID?
@@ -884,7 +887,10 @@ final class WMController {
             axRef: axRef,
             pid: pid,
             parentWindowId: parentWindowId,
+            inheritTrackedParentWorkspace: inheritTrackedParentWorkspace,
+            preferSameAppSiblingWorkspace: preferSameAppSiblingWorkspace,
             structuralReplacementWorkspaceId: structuralReplacementWorkspaceId,
+            restrictWorkspaceRuleToPlacementMonitor: restrictWorkspaceRuleToPlacementMonitor,
             createPlacementContext: createPlacementContext,
             windowFrame: windowFrame,
             existingEntry: nil,
@@ -893,12 +899,21 @@ final class WMController {
         )
     }
 
+    private struct WorkspacePlacementTarget {
+        let workspaceId: WorkspaceDescriptor.ID?
+        let monitorId: Monitor.ID?
+        let isAuthoritative: Bool
+    }
+
     private func resolveWorkspacePlacement(
         workspaceName: String?,
         axRef: AXWindowRef,
         pid: pid_t?,
         parentWindowId: UInt32?,
+        inheritTrackedParentWorkspace: Bool,
+        preferSameAppSiblingWorkspace: Bool,
         structuralReplacementWorkspaceId: WorkspaceDescriptor.ID?,
+        restrictWorkspaceRuleToPlacementMonitor: Bool,
         createPlacementContext: WindowCreatePlacementContext?,
         windowFrame: CGRect?,
         existingEntry: WindowModel.Entry?,
@@ -917,13 +932,38 @@ final class WMController {
         }
 
         if existingEntry == nil,
+           inheritTrackedParentWorkspace,
            let parentWorkspaceId = workspaceForTrackedParentWindow(parentWindowId: parentWindowId, pid: pid)
         {
             return parentWorkspaceId
         }
 
+        let placementTarget = createPlacementTarget(
+            axRef: axRef,
+            createPlacementContext: createPlacementContext,
+            windowFrame: windowFrame,
+            fallbackWorkspaceId: fallbackWorkspaceId,
+            preferManagedFocusPlacement: existingEntry == nil && restrictWorkspaceRuleToPlacementMonitor
+        )
+
+        if context == .automatic,
+           existingEntry == nil,
+           preferSameAppSiblingWorkspace,
+           let pid,
+           let siblingWorkspaceId = workspaceForNewSiblingWindow(
+               pid: pid,
+               fallbackWorkspaceId: fallbackWorkspaceId,
+               targetMonitorId: placementTarget.isAuthoritative ? placementTarget.monitorId : nil
+           )
+        {
+            return siblingWorkspaceId
+        }
+
         if let workspaceName,
-           let workspaceId = workspaceManager.workspaceId(for: workspaceName, createIfMissing: false)
+           let workspaceId = workspaceManager.workspaceId(for: workspaceName, createIfMissing: false),
+           existingEntry != nil ||
+           !restrictWorkspaceRuleToPlacementMonitor ||
+           shouldApplyWorkspaceRule(workspaceId, placementTarget: placementTarget)
         {
             return workspaceId
         }
@@ -932,12 +972,7 @@ final class WMController {
             return existingEntry.workspaceId
         }
 
-        return defaultWorkspaceId(
-            for: axRef,
-            createPlacementContext: createPlacementContext,
-            windowFrame: windowFrame,
-            fallbackWorkspaceId: fallbackWorkspaceId
-        )
+        return defaultWorkspaceId(placementTarget: placementTarget)
     }
 
     private func workspaceForTrackedParentWindow(
@@ -948,31 +983,111 @@ final class WMController {
         return workspaceManager.entry(forWindowId: Int(parentWindowId))?.workspaceId
     }
 
-    private func defaultWorkspaceId(
-        for axRef: AXWindowRef,
-        createPlacementContext: WindowCreatePlacementContext?,
-        windowFrame: CGRect?,
-        fallbackWorkspaceId: WorkspaceDescriptor.ID?
-    ) -> WorkspaceDescriptor.ID {
-        if let monitorId = createPlacementContext?.monitorHintId,
-           let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitorId)
+    private func workspaceForNewSiblingWindow(
+        pid: pid_t,
+        fallbackWorkspaceId: WorkspaceDescriptor.ID?,
+        targetMonitorId: Monitor.ID?
+    ) -> WorkspaceDescriptor.ID? {
+        let entries = workspaceManager.entries(forPid: pid)
+        guard let firstEntry = entries.first else { return nil }
+
+        if let focusedToken = workspaceManager.focusedToken,
+           let focusedEntry = entries.first(where: { $0.token == focusedToken }),
+           workspace(focusedEntry.workspaceId, isOn: targetMonitorId)
         {
-            return workspace.id
+            return focusedEntry.workspaceId
         }
 
-        if let frame = windowFrame ?? AXWindowService.framePreferFast(axRef) {
-            let center = frame.center
-            if let monitor = center.monitorApproximation(in: workspaceManager.monitors),
-               let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
-            {
-                return workspace.id
-            }
-        }
         if let fallbackWorkspaceId,
-           workspaceManager.descriptor(for: fallbackWorkspaceId) != nil
+           entries.contains(where: { $0.workspaceId == fallbackWorkspaceId }),
+           workspace(fallbackWorkspaceId, isOn: targetMonitorId)
         {
             return fallbackWorkspaceId
         }
+
+        let workspaceId = firstEntry.workspaceId
+        guard entries.dropFirst().allSatisfy({ $0.workspaceId == workspaceId }),
+              workspace(workspaceId, isOn: targetMonitorId)
+        else {
+            return nil
+        }
+        return workspaceId
+    }
+
+    private func workspace(
+        _ workspaceId: WorkspaceDescriptor.ID,
+        isOn targetMonitorId: Monitor.ID?
+    ) -> Bool {
+        guard let targetMonitorId else { return true }
+        return workspaceManager.monitorId(for: workspaceId) == targetMonitorId
+    }
+
+    private func shouldApplyWorkspaceRule(
+        _ workspaceId: WorkspaceDescriptor.ID,
+        placementTarget: WorkspacePlacementTarget
+    ) -> Bool {
+        guard placementTarget.isAuthoritative,
+              let targetMonitorId = placementTarget.monitorId,
+              let workspaceMonitorId = workspaceManager.monitorId(for: workspaceId)
+        else {
+            return true
+        }
+        return workspaceMonitorId == targetMonitorId
+    }
+
+    func shouldInheritTrackedParentWorkspace(for evaluation: WindowDecisionEvaluation) -> Bool {
+        let facts = evaluation.facts
+        guard let windowServer = facts.windowServer,
+              windowServer.parentId != 0
+        else {
+            return false
+        }
+
+        let axFacts = facts.ax
+        if axFacts.attributeFetchSucceeded {
+            if axFacts.role == kAXSheetRole as String
+                || axFacts.subrole == kAXDialogSubrole as String
+                || axFacts.subrole == kAXSystemDialogSubrole as String
+            {
+                return true
+            }
+            return false
+        }
+
+        if windowServer.hasDocumentTag {
+            return false
+        }
+
+        return windowServer.hasModalTag || windowServer.hasTransientSurfaceEvidence
+    }
+
+    func shouldPreferSameAppSiblingWorkspace(
+        for evaluation: WindowDecisionEvaluation,
+        inheritTrackedParentWorkspace: Bool
+    ) -> Bool {
+        guard let workspaceName = evaluation.decision.workspaceName,
+              workspaceManager.workspaceId(for: workspaceName, createIfMissing: false) != nil,
+              evaluation.decision.disposition == .managed,
+              !inheritTrackedParentWorkspace
+        else {
+            return false
+        }
+
+        let axFacts = evaluation.facts.ax
+        guard axFacts.attributeFetchSucceeded,
+              axFacts.role == kAXWindowRole as String
+        else {
+            return false
+        }
+
+        return axFacts.subrole == nil || axFacts.subrole == kAXStandardWindowSubrole as String
+    }
+
+    private func defaultWorkspaceId(placementTarget: WorkspacePlacementTarget) -> WorkspaceDescriptor.ID {
+        if let workspaceId = placementTarget.workspaceId {
+            return workspaceId
+        }
+
         if let monitor = monitorForInteraction(),
            let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
         {
@@ -985,6 +1100,132 @@ final class WMController {
             return createdWorkspaceId
         }
         fatalError("resolveWorkspaceForNewWindow: no workspaces exist")
+    }
+
+    private func createPlacementTarget(
+        axRef: AXWindowRef,
+        createPlacementContext: WindowCreatePlacementContext?,
+        windowFrame: CGRect?,
+        fallbackWorkspaceId: WorkspaceDescriptor.ID?,
+        preferManagedFocusPlacement: Bool
+    ) -> WorkspacePlacementTarget {
+        if preferManagedFocusPlacement {
+            if let target = managedFocusPlacementTarget(createPlacementContext?.pendingFocusedWorkspaceId,
+                                                        createPlacementContext?.pendingFocusedMonitorId)
+            {
+                return target
+            }
+
+            if let target = managedFocusPlacementTarget(createPlacementContext?.focusedWorkspaceId,
+                                                        createPlacementContext?.focusedMonitorId)
+            {
+                return target
+            }
+        }
+
+        if let monitorId = createPlacementContext?.nativeSpaceMonitorId,
+           let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitorId)
+        {
+            return WorkspacePlacementTarget(
+                workspaceId: workspace.id,
+                monitorId: monitorId,
+                isAuthoritative: true
+            )
+        }
+
+        if let monitor = monitorForPlacementFrame(windowFrame),
+           let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
+        {
+            return WorkspacePlacementTarget(
+                workspaceId: workspace.id,
+                monitorId: monitor.id,
+                isAuthoritative: true
+            )
+        }
+
+        if workspaceManager.monitors.count > 1,
+           let monitor = monitorForPlacementFrame(AXWindowService.framePreferFast(axRef)),
+           let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
+        {
+            return WorkspacePlacementTarget(
+                workspaceId: workspace.id,
+                monitorId: monitor.id,
+                isAuthoritative: true
+            )
+        }
+
+        if !preferManagedFocusPlacement {
+            if let target = managedFocusPlacementTarget(createPlacementContext?.pendingFocusedWorkspaceId,
+                                                        createPlacementContext?.pendingFocusedMonitorId)
+            {
+                return target
+            }
+
+            if let target = managedFocusPlacementTarget(createPlacementContext?.focusedWorkspaceId,
+                                                        createPlacementContext?.focusedMonitorId)
+            {
+                return target
+            }
+        }
+
+        if let monitorId = createPlacementContext?.interactionMonitorId,
+           let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitorId)
+        {
+            return WorkspacePlacementTarget(
+                workspaceId: workspace.id,
+                monitorId: monitorId,
+                isAuthoritative: true
+            )
+        }
+
+        if let fallbackWorkspaceId,
+           workspaceManager.descriptor(for: fallbackWorkspaceId) != nil
+        {
+            return WorkspacePlacementTarget(
+                workspaceId: fallbackWorkspaceId,
+                monitorId: workspaceManager.monitorId(for: fallbackWorkspaceId),
+                isAuthoritative: false
+            )
+        }
+
+        return WorkspacePlacementTarget(
+            workspaceId: nil,
+            monitorId: nil,
+            isAuthoritative: false
+        )
+    }
+
+    private func managedFocusPlacementTarget(
+        _ workspaceId: WorkspaceDescriptor.ID?,
+        _ monitorId: Monitor.ID?
+    ) -> WorkspacePlacementTarget? {
+        if let workspaceId,
+           workspaceManager.descriptor(for: workspaceId) != nil
+        {
+            let resolvedMonitorId = workspaceManager.monitorId(for: workspaceId) ?? monitorId
+            return WorkspacePlacementTarget(
+                workspaceId: workspaceId,
+                monitorId: resolvedMonitorId,
+                isAuthoritative: true
+            )
+        }
+
+        if let monitorId,
+           let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitorId)
+        {
+            return WorkspacePlacementTarget(
+                workspaceId: workspace.id,
+                monitorId: monitorId,
+                isAuthoritative: true
+            )
+        }
+
+        return nil
+    }
+
+    private func monitorForPlacementFrame(_ frame: CGRect?) -> Monitor? {
+        guard let frame, !frame.isNull, !frame.isEmpty else { return nil }
+        return frame.center.monitorApproximation(in: workspaceManager.monitors)
     }
 
     private func resolvedAppInfo(for pid: pid_t) -> AppInfoCache.AppInfo? {
@@ -1569,15 +1810,23 @@ final class WMController {
         existingEntry: WindowModel.Entry?,
         fallbackWorkspaceId: WorkspaceDescriptor.ID?,
         structuralReplacementWorkspaceId: WorkspaceDescriptor.ID? = nil,
+        restrictWorkspaceRuleToPlacementMonitor: Bool = true,
         createPlacementContext: WindowCreatePlacementContext? = nil,
         context: WindowRuleReevaluationContext = .automatic
     ) -> WorkspaceDescriptor.ID {
-        resolveWorkspacePlacement(
+        let inheritTrackedParentWorkspace = shouldInheritTrackedParentWorkspace(for: evaluation)
+        return resolveWorkspacePlacement(
             workspaceName: evaluation.decision.workspaceName,
             axRef: axRef,
             pid: evaluation.token.pid,
             parentWindowId: evaluation.facts.windowServer?.parentId,
+            inheritTrackedParentWorkspace: inheritTrackedParentWorkspace,
+            preferSameAppSiblingWorkspace: shouldPreferSameAppSiblingWorkspace(
+                for: evaluation,
+                inheritTrackedParentWorkspace: inheritTrackedParentWorkspace
+            ),
             structuralReplacementWorkspaceId: structuralReplacementWorkspaceId,
+            restrictWorkspaceRuleToPlacementMonitor: restrictWorkspaceRuleToPlacementMonitor,
             createPlacementContext: createPlacementContext,
             windowFrame: evaluation.facts.windowServer?.frame,
             existingEntry: existingEntry,
@@ -1840,6 +2089,7 @@ final class WMController {
                 existingEntry: existingEntry,
                 fallbackWorkspaceId: activeWorkspace()?.id,
                 structuralReplacementWorkspaceId: structuralReplacementWorkspaceId,
+                restrictWorkspaceRuleToPlacementMonitor: effectiveTrackedMode != .floating,
                 createPlacementContext: createPlacementContext,
                 context: context
             )
@@ -1886,6 +2136,11 @@ final class WMController {
             }
 
             if let updatedEntry = workspaceManager.entry(for: token) {
+                let parentWindowId = if let windowServer = evaluation.facts.windowServer {
+                    windowServer.parentId == 0 ? nil : windowServer.parentId
+                } else {
+                    updatedEntry.managedReplacementMetadata?.parentWindowId
+                }
                 _ = workspaceManager.setManagedReplacementMetadata(
                     ManagedReplacementMetadata(
                         bundleId: evaluation.facts.ax.bundleId ?? updatedEntry.managedReplacementMetadata?.bundleId,
@@ -1896,8 +2151,7 @@ final class WMController {
                         title: evaluation.facts.ax.title ?? updatedEntry.managedReplacementMetadata?.title,
                         windowLevel: evaluation.facts.windowServer?.level ?? updatedEntry.managedReplacementMetadata?
                             .windowLevel,
-                        parentWindowId: evaluation.facts.windowServer?.parentId ?? updatedEntry
-                            .managedReplacementMetadata?.parentWindowId,
+                        parentWindowId: parentWindowId,
                         frame: evaluation.facts.windowServer?.frame ?? updatedEntry.managedReplacementMetadata?.frame,
                         transientWindowServerEvidence: updatedEntry.managedReplacementMetadata?
                             .transientWindowServerEvidence == true
