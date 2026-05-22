@@ -258,10 +258,24 @@ func setWorkspaceInactiveHiddenStateForLayoutPlanTests(
 
 @MainActor
 func lastAppliedBorderWindowIdForLayoutPlanTests(on controller: WMController) -> Int? {
-    controller.borderManager.lastAppliedFocusedWindowIdForTests
+    controller.focusBorderController.lastAppliedFocusedWindowIdForTests
 }
 
 @MainActor
 func lastAppliedBorderFrameForLayoutPlanTests(on controller: WMController) -> CGRect? {
-    controller.borderManager.lastAppliedFocusedFrameForTests
+    controller.focusBorderController.lastAppliedFocusedFrameForTests
+}
+
+@MainActor
+@discardableResult
+func confirmFocusedBorderForLayoutPlanTests(
+    on controller: WMController,
+    token: WindowToken,
+    frame: CGRect? = nil
+) -> Bool {
+    controller.renderKeyboardFocusBorder(
+        for: controller.managedKeyboardFocusTarget(for: token),
+        preferredFrame: frame,
+        forceOrdering: true
+    )
 }

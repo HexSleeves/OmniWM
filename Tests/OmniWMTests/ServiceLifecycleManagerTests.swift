@@ -352,8 +352,11 @@ private func waitUntilServiceLifecycleTest(
             onMonitor: monitor.id
         )
         _ = controller.focusBridge.beginManagedRequest(token: handle1, workspaceId: ws1)
-        controller.focusBridge.setFocusedTarget(
-            controller.keyboardFocusTarget(for: handle2, axRef: makeLifecycleWindow(windowId: 7103))
+        controller.setBordersEnabled(true)
+        _ = controller.renderKeyboardFocusBorder(
+            for: controller.keyboardFocusTarget(for: handle2, axRef: makeLifecycleWindow(windowId: 7103)),
+            preferredFrame: CGRect(x: 40, y: 40, width: 500, height: 360),
+            forceOrdering: true
         )
         controller.hasStartedServices = true
 
@@ -364,7 +367,8 @@ private func waitUntilServiceLifecycleTest(
         #expect(controller.workspaceManager.lastFocusedHandle(in: ws1) == nil)
         #expect(controller.workspaceManager.lastFocusedHandle(in: ws2) == nil)
         #expect(controller.focusBridge.activeManagedRequest == nil)
-        #expect(controller.focusBridge.focusedTarget == nil)
+        #expect(controller.currentKeyboardFocusTargetForRendering() == nil)
+        #expect(controller.focusBorderController.lastAppliedFocusedWindowIdForTests == nil)
 
         #expect(controller.workspaceManager.setActiveWorkspace(ws1, on: monitor.id))
         #expect(controller.workspaceManager.resolveWorkspaceFocus(in: ws1) == nil)

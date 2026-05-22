@@ -457,10 +457,7 @@ import QuartzCore
     func executeLayoutPlan(_ plan: WorkspaceLayoutPlan) {
         applySessionPatch(plan.sessionPatch)
         diffExecutor.execute(plan)
-        applyAnimationDirectives(
-            plan.animationDirectives,
-            focusedFrame: plan.diff.focusedFrame
-        )
+        applyAnimationDirectives(plan.animationDirectives)
     }
 
     private func executeRefreshExecutionPlan(_ plan: RefreshExecutionPlan) async {
@@ -612,10 +609,7 @@ import QuartzCore
         controller?.workspaceManager.applySessionPatch(patch)
     }
 
-    private func applyAnimationDirectives(
-        _ directives: [AnimationDirective],
-        focusedFrame: LayoutFocusedFrame?
-    ) {
+    private func applyAnimationDirectives(_ directives: [AnimationDirective]) {
         guard let controller else { return }
 
         for directive in directives {
@@ -640,17 +634,6 @@ import QuartzCore
                     )
                 }
                 controller.focusWindow(token)
-                if let focusedFrame,
-                   focusedFrame.token == token,
-                   let target = controller.managedKeyboardFocusTarget(for: token)
-                {
-                    _ = controller.renderKeyboardFocusBorder(
-                        for: target,
-                        preferredFrame: focusedFrame.frame,
-                        policy: .direct,
-                        forceOrdering: true
-                    )
-                }
             case .updateTabbedOverlays:
                 niriHandler.updateTabbedColumnOverlays()
             }
@@ -889,7 +872,7 @@ import QuartzCore
     }
 
     private func refreshFocusedBorderForVisibilityState(on controller: WMController) {
-        _ = controller.renderKeyboardFocusBorder(policy: .coordinated)
+        _ = controller.focusBorderController.refresh()
     }
 
     func waitForRefreshWorkForTests() async {
@@ -1351,6 +1334,7 @@ import QuartzCore
             controller.clearResizePlaceholder(for: token)
             controller.cleanupScratchpadWindowResourcesIfNeeded(for: token)
             _ = controller.workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
+            controller.clearKeyboardFocusTarget(matching: token)
         }
 
         let shouldPreserveMissingWindows = shouldPreserveMissingWindowsDuringNativeFullscreen(
@@ -1390,6 +1374,7 @@ import QuartzCore
         for entry in trackedEntries where !remainingTokens.contains(entry.token) {
             controller.nativeFullscreenPlaceholderManager.remove(entry.token)
             controller.clearResizePlaceholder(for: entry.token)
+            controller.clearKeyboardFocusTarget(matching: entry.token)
         }
         if let scratchpadTokenBeforeRemove,
            controller.workspaceManager.entry(for: scratchpadTokenBeforeRemove) == nil
@@ -2962,14 +2947,11 @@ import QuartzCore
                 icon: appInfo?.icon
             )
         )
-        if let target = controller.managedKeyboardFocusTarget(for: entry.token) {
-            _ = controller.renderKeyboardFocusBorder(
-                for: target,
-                preferredFrame: result.targetFrame,
-                policy: .direct,
-                forceOrdering: true
-            )
-        }
+        _ = controller.focusBorderController.updateFrameHint(
+            for: entry.token,
+            frame: result.targetFrame,
+            forceOrdering: true
+        )
     }
 
     private func resizePlaceholderFallbackMinimumSize(
@@ -3392,17 +3374,11 @@ final class LayoutDiffExecutor {
             )
         }
 
-        switch diff.borderMode {
-        case .none:
-            break
-        case .direct:
-            applyDirectBorderUpdate(diff.focusedFrame)
-        case .coordinated:
-            if shouldApplyCoordinatedBorderDirectly(diff.focusedFrame) {
-                applyDirectBorderUpdate(diff.focusedFrame)
-            } else {
-                applyCoordinatedBorderUpdate(diff.focusedFrame)
-            }
+        if let focusedFrame = diff.focusedFrame {
+            _ = controller.updateManagedKeyboardFocusBorder(
+                token: focusedFrame.token,
+                preferredFrame: focusedFrame.frame
+            )
         }
     }
 
@@ -3417,109 +3393,4 @@ final class LayoutDiffExecutor {
         return controller.workspaceManager.monitors.first(where: { $0.displayId == snapshot.displayId })
     }
 
-    private func applyDirectBorderUpdate(_ focusedFrame: LayoutFocusedFrame?) {
-        guard let controller = refreshController.controller else { return }
-        let target = resolvedBorderRenderTarget(controller: controller, focusedFrame: focusedFrame)
-        let fallbackPreferredFrame: CGRect?
-        if let target, target.isManaged {
-            fallbackPreferredFrame = controller.preferredKeyboardFocusFrame(for: target.token)
-        } else {
-            fallbackPreferredFrame = nil
-        }
-        if target?.isManaged == true,
-           focusedFrame == nil,
-           fallbackPreferredFrame == nil
-        {
-            controller.borderManager.hideBorder()
-            return
-        }
-        guard !shouldIgnoreStaleManagedBorderUpdate(target: target, focusedFrame: focusedFrame) else {
-            return
-        }
-        let preferredFrame: CGRect? = if let target,
-                                         target.isManaged,
-                                         focusedFrame?.token == target.token
-        {
-            focusedFrame?.frame
-        } else {
-            fallbackPreferredFrame
-        }
-        _ = controller.renderKeyboardFocusBorder(
-            for: target,
-            preferredFrame: preferredFrame,
-            policy: .direct
-        )
-    }
-
-    private func applyCoordinatedBorderUpdate(_ focusedFrame: LayoutFocusedFrame?) {
-        guard let controller = refreshController.controller else { return }
-        let target = resolvedBorderRenderTarget(controller: controller, focusedFrame: focusedFrame)
-        let fallbackPreferredFrame: CGRect?
-        if let target, target.isManaged {
-            fallbackPreferredFrame = controller.preferredKeyboardFocusFrame(for: target.token)
-        } else {
-            fallbackPreferredFrame = nil
-        }
-        if target?.isManaged == true,
-           focusedFrame == nil,
-           fallbackPreferredFrame == nil
-        {
-            controller.borderManager.hideBorder()
-            return
-        }
-        guard !shouldIgnoreStaleManagedBorderUpdate(target: target, focusedFrame: focusedFrame) else {
-            return
-        }
-        let preferredFrame: CGRect? = if let target,
-                                         target.isManaged,
-                                         focusedFrame?.token == target.token
-        {
-            focusedFrame?.frame
-        } else {
-            fallbackPreferredFrame
-        }
-        _ = controller.renderKeyboardFocusBorder(
-            for: target,
-            preferredFrame: preferredFrame,
-            policy: .coordinated
-        )
-    }
-
-    private func shouldApplyCoordinatedBorderDirectly(_ focusedFrame: LayoutFocusedFrame?) -> Bool {
-        guard focusedFrame != nil,
-              let controller = refreshController.controller
-        else {
-            return false
-        }
-
-        return !controller.motionPolicy.animationsEnabled
-    }
-
-    private func shouldIgnoreStaleManagedBorderUpdate(
-        target: KeyboardFocusTarget?,
-        focusedFrame: LayoutFocusedFrame?
-    ) -> Bool {
-        guard let target,
-              target.isManaged,
-              let focusedFrame
-        else {
-            return false
-        }
-
-        return focusedFrame.token != target.token
-    }
-
-    private func resolvedBorderRenderTarget(
-        controller: WMController,
-        focusedFrame: LayoutFocusedFrame?
-    ) -> KeyboardFocusTarget? {
-        let currentTarget = controller.currentKeyboardFocusTargetForRendering()
-        guard let focusedFrame,
-              controller.workspaceManager.pendingFocusedToken == focusedFrame.token
-        else {
-            return currentTarget
-        }
-
-        return controller.managedKeyboardFocusTarget(for: focusedFrame.token) ?? currentTarget
-    }
 }

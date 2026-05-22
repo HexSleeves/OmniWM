@@ -578,6 +578,7 @@ private func configureWorkspacesAsDwindle(
             activeWorkspaces: [workspaceId]
         )
         controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+        _ = confirmFocusedBorderForLayoutPlanTests(on: controller, token: firstToken)
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 703)
 
         _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 704)
@@ -587,7 +588,7 @@ private func configureWorkspacesAsDwindle(
         controller.layoutRefreshController.executeLayoutPlans(animationPlans)
         #expect(controller.dwindleLayoutHandler.dwindleAnimationByDisplay[monitor.displayId]?.0 == workspaceId)
 
-        controller.borderManager.hideBorder()
+        controller.focusBorderController.hide()
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == nil)
 
         controller.dwindleLayoutHandler.tickDwindleAnimation(
@@ -621,6 +622,7 @@ private func configureWorkspacesAsDwindle(
             activeWorkspaces: [workspaceId]
         )
         controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+        _ = confirmFocusedBorderForLayoutPlanTests(on: controller, token: firstToken)
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 709)
 
         _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 710)
@@ -630,7 +632,7 @@ private func configureWorkspacesAsDwindle(
         controller.layoutRefreshController.executeLayoutPlans(animationPlans)
         #expect(controller.dwindleLayoutHandler.dwindleAnimationByDisplay[monitor.displayId]?.0 == workspaceId)
 
-        controller.borderManager.hideBorder()
+        controller.focusBorderController.hide()
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == nil)
 
         controller.dwindleLayoutHandler.tickDwindleAnimation(
@@ -669,6 +671,7 @@ private func configureWorkspacesAsDwindle(
             activeWorkspaces: [workspaceId]
         )
         controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+        _ = confirmFocusedBorderForLayoutPlanTests(on: controller, token: firstToken)
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 707)
 
         guard let fullscreenNode = engine.findNode(for: firstToken) else {
@@ -709,6 +712,7 @@ private func configureWorkspacesAsDwindle(
             activeWorkspaces: [workspaceId]
         )
         controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+        _ = confirmFocusedBorderForLayoutPlanTests(on: controller, token: firstToken)
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 705)
 
         _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 706)
@@ -722,7 +726,7 @@ private func configureWorkspacesAsDwindle(
             appFullscreen: false,
             preserveFocusedToken: true
         )
-        controller.borderManager.hideBorder()
+        controller.focusBorderController.clear()
         #expect(controller.workspaceManager.focusedToken == firstToken)
         #expect(controller.workspaceManager.isNonManagedFocusActive)
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == nil)
@@ -814,6 +818,7 @@ private func configureWorkspacesAsDwindle(
             activeWorkspaces: [fixture.primaryWorkspaceId, fixture.secondaryWorkspaceId]
         )
         controller.layoutRefreshController.executeLayoutPlans(plans)
+        _ = confirmFocusedBorderForLayoutPlanTests(on: controller, token: primaryToken)
 
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 901)
     }

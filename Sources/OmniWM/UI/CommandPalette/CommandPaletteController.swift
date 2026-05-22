@@ -222,6 +222,7 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
 
     private let environment: CommandPaletteEnvironment
     private let motionPolicy: MotionPolicy
+    private let ownedWindowRegistry: OwnedWindowRegistry
     private var panel: NSPanel?
     private var eventMonitor: Any?
 
@@ -252,10 +253,12 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
 
     init(
         motionPolicy: MotionPolicy,
-        environment: CommandPaletteEnvironment = .init()
+        environment: CommandPaletteEnvironment = .init(),
+        ownedWindowRegistry: OwnedWindowRegistry = .shared
     ) {
         self.motionPolicy = motionPolicy
         self.environment = environment
+        self.ownedWindowRegistry = ownedWindowRegistry
         super.init()
     }
 
@@ -1079,10 +1082,12 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.isMovableByWindowBackground = false
+        panel.collectionBehavior = [.moveToActiveSpace]
 
         let hostingView = NSHostingView(rootView: makeRootView())
         panel.contentView = hostingView
 
+        ownedWindowRegistry.register(panel)
         self.panel = panel
     }
 

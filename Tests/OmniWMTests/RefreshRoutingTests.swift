@@ -266,7 +266,7 @@ private func workspaceBarWindowCount(
 
 @MainActor
 private func lastAppliedBorderWindowId(on controller: WMController) -> Int? {
-    controller.borderManager.lastAppliedFocusedWindowIdForTests
+    controller.focusBorderController.lastAppliedFocusedWindowIdForTests
 }
 
 @MainActor
@@ -537,14 +537,15 @@ private func assertWorkspaceSwitchCommandClearsManagedFocusForEmptyTarget(
 
 @MainActor
 private func primeFocusedBorder(on controller: WMController, handle: WindowHandle) {
-    guard let entry = controller.workspaceManager.entry(for: handle) else {
+    guard controller.workspaceManager.entry(for: handle) != nil else {
         fatalError("Missing entry for focused-border priming")
     }
 
     controller.setBordersEnabled(true)
-    controller.borderManager.updateFocusedWindow(
-        frame: CGRect(x: 10, y: 10, width: 800, height: 600),
-        windowId: entry.windowId
+    controller.renderKeyboardFocusBorder(
+        for: controller.managedKeyboardFocusTarget(for: handle.id),
+        preferredFrame: CGRect(x: 10, y: 10, width: 800, height: 600),
+        forceOrdering: true
     )
 }
 
@@ -1206,8 +1207,10 @@ private func syncNiriWorkspaceStatesForRefreshTests(
             return
         }
 
-        controller.focusBridge.setFocusedTarget(
-            controller.managedKeyboardFocusTarget(for: focusedHandle.id)
+        controller.renderKeyboardFocusBorder(
+            for: controller.managedKeyboardFocusTarget(for: focusedHandle.id),
+            preferredFrame: CGRect(x: 20, y: 20, width: 640, height: 480),
+            forceOrdering: true
         )
 
         var animatingState = controller.workspaceManager.niriViewportState(for: workspaceOne)
@@ -1222,12 +1225,10 @@ private func syncNiriWorkspaceStatesForRefreshTests(
         controller.workspaceManager.updateNiriViewportState(animatingState, for: workspaceOne)
 
         #expect(controller.workspaceNavigationHandler.moveWindow(handle: focusedHandle, toWorkspaceId: workspaceTwo))
-        #expect(controller.focusBridge.focusedTarget?.workspaceId == workspaceTwo)
         #expect(controller.currentKeyboardFocusTargetForRendering()?.workspaceId == workspaceTwo)
 
         let rendered = controller.renderKeyboardFocusBorder(
-            preferredFrame: CGRect(x: 20, y: 20, width: 640, height: 480),
-            policy: .coordinated
+            preferredFrame: CGRect(x: 20, y: 20, width: 640, height: 480)
         )
 
         #expect(rendered)
@@ -3371,6 +3372,47 @@ private func syncNiriWorkspaceStatesForRefreshTests(
         await waitForRefreshWork(on: controller)
 
         #expect(controller.workspaceManager.entry(forPid: pid, windowId: windowId) == nil)
+    }
+
+    @Test @MainActor func fullRescanClearsFocusedFloatingBorderWhenWindowMissing() async {
+        let controller = makeRefreshTestController()
+        controller.axManager.currentWindowsAsyncOverride = { [] }
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let windowId = 3063
+        let token = controller.workspaceManager.addWindow(
+            makeRefreshTestWindow(windowId: windowId),
+            pid: getpid(),
+            windowId: windowId,
+            to: workspaceId,
+            mode: .floating
+        )
+        guard let handle = controller.workspaceManager.handle(for: token) else {
+            Issue.record("Missing handle for floating window")
+            return
+        }
+        _ = controller.workspaceManager.setManagedFocus(
+            handle,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+        controller.workspaceManager.updateFloatingGeometry(
+            frame: CGRect(x: 80, y: 80, width: 620, height: 420),
+            for: token
+        )
+        primeFocusedBorder(on: controller, handle: handle)
+        #expect(controller.currentKeyboardFocusTargetForRendering()?.token == token)
+        #expect(lastAppliedBorderWindowId(on: controller) == windowId)
+
+        controller.layoutRefreshController.requestFullRescan(reason: .startup)
+        await waitForRefreshWork(on: controller)
+
+        #expect(controller.workspaceManager.entry(for: token) == nil)
+        #expect(controller.currentKeyboardFocusTargetForRendering() == nil)
+        #expect(lastAppliedBorderWindowId(on: controller) == nil)
     }
 
     @Test @MainActor func fullRescanPreservesScratchpadHiddenWindowWhenWindowServerStillSeesIt() async {

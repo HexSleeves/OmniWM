@@ -3979,11 +3979,16 @@ private func makeCenteredCrossMonitorFixture(
             for: placeholderToken
         )
 
+        controller.setBordersEnabled(true)
+        let expectedBorderFrame = placeholderNode.renderedFrame ?? placeholderFrame
         controller.activateResizePlaceholder(placeholderToken)
 
         let selectedState = controller.workspaceManager.niriViewportState(for: workspaceId)
         #expect(selectedState.selectedNodeId == placeholderNode.id)
         #expect(controller.workspaceManager.focusedToken == placeholderToken)
+        #expect(controller.currentKeyboardFocusTargetForRendering()?.token == placeholderToken)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == placeholderToken.windowId)
+        #expect(lastAppliedBorderFrameForLayoutPlanTests(on: controller) == expectedBorderFrame)
     }
 
     @Test @MainActor func snapshotPlanIncludesViewportPatchAndActivationForNewWindow() async throws {
@@ -4081,7 +4086,7 @@ private func makeCenteredCrossMonitorFixture(
         #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == newToken)
         #expect(state.selectedNodeId == newNode.id)
         #expect(state.activeColumnIndex == 1)
-        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == nil)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == firstToken.windowId)
     }
 
     @Test @MainActor func snapshotPlanEmitsHideDiffForOffscreenWindows() async throws {
@@ -7249,6 +7254,7 @@ private func makeCenteredCrossMonitorFixture(
             useScrollAnimationPath: true
         )
         controller.layoutRefreshController.executeLayoutPlans(plans)
+        _ = confirmFocusedBorderForLayoutPlanTests(on: controller, token: primaryToken)
 
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 601)
     }
@@ -7288,12 +7294,13 @@ private func makeCenteredCrossMonitorFixture(
             useScrollAnimationPath: true
         )
         controller.layoutRefreshController.executeLayoutPlans(plans)
+        _ = confirmFocusedBorderForLayoutPlanTests(on: controller, token: focusedToken)
 
         #expect(controller.workspaceManager.focusedToken == focusedToken)
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 609)
     }
 
-    @Test @MainActor func focusNeighborUsesLayoutFrameForDirectGhosttyBorderUpdatesFromEitherSide() async throws {
+    @Test @MainActor func confirmedGhosttyFocusUsesLayoutFrameAfterNavigationFromEitherSide() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
               let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
@@ -7378,12 +7385,12 @@ private func makeCenteredCrossMonitorFixture(
             height: ghosttyLayoutFrame.height + 24
         )
         var observedReadCount = 0
-        controller.borderCoordinator.observedFrameProviderForTests = { axRef in
+        controller.focusBorderController.observedFrameProviderForTests = { axRef in
             observedReadCount += 1
             return axRef.windowId == ghosttyWindow.token.windowId ? observedFrame : nil
         }
         defer {
-            controller.borderCoordinator.observedFrameProviderForTests = nil
+            controller.focusBorderController.observedFrameProviderForTests = nil
         }
 
         func currentGhosttyFrame() -> CGRect? {
@@ -7395,7 +7402,7 @@ private func makeCenteredCrossMonitorFixture(
             node: NiriWindow
         ) {
             controller.layoutRefreshController.stopAllScrollAnimations()
-            controller.borderManager.hideBorder()
+            controller.focusBorderController.clear()
             _ = controller.workspaceManager.setManagedFocus(token, in: workspaceId, onMonitor: monitor.id)
             _ = controller.workspaceManager.commitWorkspaceSelection(
                 nodeId: node.id,
@@ -7414,6 +7421,11 @@ private func makeCenteredCrossMonitorFixture(
                 )
                 state.viewOffsetPixels = .static(state.viewOffsetPixels.target())
             }
+            _ = confirmFocusedBorderForLayoutPlanTests(
+                on: controller,
+                token: token,
+                frame: node.renderedFrame ?? node.frame
+            )
             node.animateMoveFrom(
                 displacement: CGPoint(x: 18, y: 0),
                 clock: engine.animationClock,
@@ -7427,6 +7439,11 @@ private func makeCenteredCrossMonitorFixture(
         primeNavigation(from: leftWindow.token, node: leftWindow.node)
         controller.niriLayoutHandler.focusNeighbor(direction: .right)
         await waitForLayoutPlanRefreshWork(on: controller)
+        _ = confirmFocusedBorderForLayoutPlanTests(
+            on: controller,
+            token: ghosttyWindow.token,
+            frame: currentGhosttyFrame()
+        )
 
         #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == ghosttyWindow.token)
         #expect(controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId == ghosttyWindow.node.id)
@@ -7436,6 +7453,11 @@ private func makeCenteredCrossMonitorFixture(
         primeNavigation(from: rightWindow.token, node: rightWindow.node)
         controller.niriLayoutHandler.focusNeighbor(direction: .left)
         await waitForLayoutPlanRefreshWork(on: controller)
+        _ = confirmFocusedBorderForLayoutPlanTests(
+            on: controller,
+            token: ghosttyWindow.token,
+            frame: currentGhosttyFrame()
+        )
 
         #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == ghosttyWindow.token)
         #expect(controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId == ghosttyWindow.node.id)

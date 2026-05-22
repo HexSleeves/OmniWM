@@ -92,6 +92,87 @@ private func makeCommandPaletteAppSnapshot(
         #expect(controller.isVisible)
     }
 
+    @Test func palettePanelRegistersAsOwnedAndCreateEventIsSkipped() async {
+        let registry = OwnedWindowRegistry.shared
+        registry.resetForTests()
+        var environment = CommandPaletteEnvironment()
+        environment.activateOmniWM = {}
+        let controller = CommandPaletteController(environment: environment)
+        let wmController = makeCommandPaletteTestWMController()
+        var windowInfoLookups = 0
+        var axRefLookups = 0
+        var factLookups = 0
+        var subscriptions: [[UInt32]] = []
+
+        defer {
+            if controller.isVisible {
+                controller.toggle(wmController: wmController)
+            }
+            registry.resetForTests()
+        }
+
+        controller.toggle(wmController: wmController)
+        guard let panel = controller.panelForTests else {
+            Issue.record("Missing command palette panel")
+            return
+        }
+        let panelWindowId = UInt32(panel.windowNumber)
+        guard panelWindowId > 0 else {
+            Issue.record("Missing command palette window number")
+            return
+        }
+
+        wmController.axEventHandler.windowInfoProvider = { windowId in
+            windowInfoLookups += 1
+            return WindowServerInfo(id: windowId, pid: getpid(), level: 0, frame: panel.frame)
+        }
+        wmController.axEventHandler.axWindowRefProvider = { windowId, _ in
+            axRefLookups += 1
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        wmController.axEventHandler.windowFactsProvider = { _, _ in
+            factLookups += 1
+            return WindowRuleFacts(
+                appName: "OmniWM",
+                ax: AXWindowFacts(
+                    role: kAXWindowRole as String,
+                    subrole: kAXStandardWindowSubrole as String,
+                    title: "Command Palette",
+                    hasCloseButton: false,
+                    hasFullscreenButton: false,
+                    fullscreenButtonEnabled: nil,
+                    hasZoomButton: false,
+                    hasMinimizeButton: false,
+                    appPolicy: .accessory,
+                    bundleId: Bundle.main.bundleIdentifier,
+                    attributeFetchSucceeded: true
+                ),
+                sizeConstraints: nil,
+                windowServer: nil
+            )
+        }
+        wmController.axEventHandler.windowSubscriptionHandler = { windowIds in
+            subscriptions.append(windowIds)
+        }
+        wmController.layoutRefreshController.resetDebugState()
+
+        wmController.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .created(windowId: panelWindowId, spaceId: 0)
+        )
+        await wmController.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(registry.contains(window: panel))
+        #expect(registry.contains(windowNumber: Int(panelWindowId)))
+        #expect(panel.collectionBehavior.contains(.moveToActiveSpace))
+        #expect(wmController.workspaceManager.entry(forPid: getpid(), windowId: Int(panelWindowId)) == nil)
+        #expect(subscriptions.isEmpty)
+        #expect(wmController.layoutRefreshController.debugCounters.relayoutExecutions == 0)
+        #expect(windowInfoLookups == 0)
+        #expect(axRefLookups == 0)
+        #expect(factLookups == 0)
+    }
+
     @Test func toggleHidesVisiblePaletteAndClearsTransientState() {
         var environment = CommandPaletteEnvironment()
         environment.activateOmniWM = {}

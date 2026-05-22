@@ -162,11 +162,10 @@ enum NiriWindowMoveResult {
                 token: token,
                 preferredFrame: preferredFrame,
                 phase: .animationSettled,
-                policy: .direct,
                 forceOrdering: true
             )
         } else {
-            _ = controller.renderKeyboardFocusBorder(policy: .direct, forceOrdering: true)
+            _ = controller.focusBorderController.refresh(forceOrdering: true)
         }
 
         if controller.moveMouseToFocusedWindowEnabled,
@@ -254,7 +253,6 @@ enum NiriWindowMoveResult {
         }
 
         let effectiveViewportState = viewportState ?? controller.workspaceManager.niriViewportState(for: wsId)
-        let interactionWorkspaceId = controller.activeWorkspace()?.id
 
         return NiriWorkspaceSnapshot(
             workspaceId: wsId,
@@ -264,8 +262,6 @@ enum NiriWindowMoveResult {
             preferredFocusToken: controller.workspaceManager.preferredFocusToken(in: wsId),
             confirmedFocusedToken: controller.workspaceManager.focusedToken,
             pendingFocusedToken: controller.workspaceManager.pendingFocusedToken,
-            pendingFocusedWorkspaceId: controller.workspaceManager.pendingFocusedWorkspaceId,
-            isNonManagedFocusActive: controller.workspaceManager.isNonManagedFocusActive,
             hasCompletedInitialRefresh: controller.layoutRefreshController.layoutState.hasCompletedInitialRefresh,
             useScrollAnimationPath: useScrollAnimationPath,
             removalSeed: removalSeed,
@@ -273,8 +269,7 @@ enum NiriWindowMoveResult {
             outerGaps: controller.workspaceManager.outerGaps,
             displayRefreshRate: controller.layoutRefreshController.layoutState
                 .refreshRateByDisplay[monitor.displayId] ?? 60.0,
-            isActiveWorkspace: refreshInput.isActiveWorkspace,
-            isInteractionWorkspace: interactionWorkspaceId == wsId
+            isActiveWorkspace: refreshInput.isActiveWorkspace
         )
     }
 
@@ -312,12 +307,7 @@ enum NiriWindowMoveResult {
             selectedToken: selectedWindowToken(state: snapshot.viewportState, engine: engine),
             confirmedFocusedToken: snapshot.confirmedFocusedToken,
             pendingFocusedToken: snapshot.pendingFocusedToken,
-            pendingFocusedWorkspaceId: snapshot.pendingFocusedWorkspaceId,
-            isNonManagedFocusActive: snapshot.isNonManagedFocusActive,
-            workspaceId: snapshot.workspaceId,
             engine: engine,
-            directBorderUpdate: true,
-            isInteractionWorkspace: snapshot.isInteractionWorkspace,
             canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace
         )
 
@@ -735,12 +725,7 @@ enum NiriWindowMoveResult {
             selectedToken: selectedWindowToken(state: state, engine: pass.engine),
             confirmedFocusedToken: snapshot.confirmedFocusedToken,
             pendingFocusedToken: snapshot.pendingFocusedToken,
-            pendingFocusedWorkspaceId: snapshot.pendingFocusedWorkspaceId,
-            isNonManagedFocusActive: snapshot.isNonManagedFocusActive,
-            workspaceId: pass.wsId,
             engine: pass.engine,
-            directBorderUpdate: snapshot.useScrollAnimationPath,
-            isInteractionWorkspace: snapshot.isInteractionWorkspace,
             canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace
         )
 
@@ -764,12 +749,7 @@ enum NiriWindowMoveResult {
         selectedToken: WindowToken?,
         confirmedFocusedToken: WindowToken?,
         pendingFocusedToken: WindowToken?,
-        pendingFocusedWorkspaceId: WorkspaceDescriptor.ID?,
-        isNonManagedFocusActive: Bool,
-        workspaceId: WorkspaceDescriptor.ID,
         engine: NiriLayoutEngine,
-        directBorderUpdate: Bool,
-        isInteractionWorkspace: Bool,
         canRestoreHiddenWorkspaceWindows: Bool
     ) -> WorkspaceLayoutDiff {
         var diff = WorkspaceLayoutDiff()
@@ -778,30 +758,6 @@ enum NiriWindowMoveResult {
                 .filter(\.isNativeFullscreenSuspended)
                 .map(\.token)
         )
-        let effectiveBorderToken: WindowToken? = if directBorderUpdate && isInteractionWorkspace {
-            if !isNonManagedFocusActive,
-               pendingFocusedWorkspaceId == workspaceId,
-               let pendingFocusedToken
-            {
-                pendingFocusedToken
-            } else if let confirmedFocusedToken {
-                confirmedFocusedToken
-            } else {
-                nil
-            }
-        } else {
-            confirmedFocusedToken
-        }
-
-        if let effectiveBorderToken {
-            let ownsFocusedToken = windows.contains {
-                $0.token == effectiveBorderToken && !$0.isNativeFullscreenSuspended
-            }
-            diff.borderMode = ownsFocusedToken ? (directBorderUpdate ? .direct : .coordinated) : .none
-        } else {
-            diff.borderMode = directBorderUpdate ? .direct : .coordinated
-        }
-
         for window in windows {
             let token = window.token
             if window.isNativeFullscreenSuspended {
@@ -871,13 +827,13 @@ enum NiriWindowMoveResult {
             )
         }
 
-        if let effectiveBorderToken,
-           !suspendedTokens.contains(effectiveBorderToken),
-           hiddenHandles[effectiveBorderToken] == nil,
-           let frame = frames[effectiveBorderToken]
+        if let confirmedFocusedToken,
+           !suspendedTokens.contains(confirmedFocusedToken),
+           hiddenHandles[confirmedFocusedToken] == nil,
+           let frame = frames[confirmedFocusedToken]
         {
             diff.focusedFrame = LayoutFocusedFrame(
-                token: effectiveBorderToken,
+                token: confirmedFocusedToken,
                 frame: frame
             )
         } else {

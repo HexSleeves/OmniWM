@@ -61,8 +61,6 @@ struct NiriWorkspaceSnapshot {
     let preferredFocusToken: WindowToken?
     let confirmedFocusedToken: WindowToken?
     let pendingFocusedToken: WindowToken?
-    let pendingFocusedWorkspaceId: WorkspaceDescriptor.ID?
-    let isNonManagedFocusActive: Bool
     let hasCompletedInitialRefresh: Bool
     let useScrollAnimationPath: Bool
     let removalSeed: NiriWindowRemovalSeed?
@@ -70,7 +68,6 @@ struct NiriWorkspaceSnapshot {
     let outerGaps: LayoutGaps.OuterGaps
     let displayRefreshRate: Double
     let isActiveWorkspace: Bool
-    let isInteractionWorkspace: Bool
 }
 
 struct DwindleWorkspaceSnapshot {
@@ -118,12 +115,6 @@ struct ResizePlaceholderChange {
     let selected: Bool
 }
 
-enum BorderUpdateMode {
-    case coordinated
-    case direct
-    case none
-}
-
 // `frameChanges` imply active, restore-eligible windows for this pass.
 // `visibilityChanges` are reserved for explicit hide/show transitions.
 struct WorkspaceLayoutDiff {
@@ -133,7 +124,6 @@ struct WorkspaceLayoutDiff {
     var nativeFullscreenPlaceholders: [NativeFullscreenPlaceholderChange] = []
     var resizePlaceholders: [ResizePlaceholderChange] = []
     var focusedFrame: LayoutFocusedFrame?
-    var borderMode: BorderUpdateMode = .coordinated
 }
 
 struct WorkspaceSessionPatch {

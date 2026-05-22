@@ -100,9 +100,11 @@ final class AppAXContext {
     private let frameWriteGenerations = LockedWindowGenerationMap()
     let suppressedFrameWindowIds = LockedWindowIdSet()
     private let axObserver: ThreadGuardedValue<AXObserver?>
+    private let focusedWindowObserver: ThreadGuardedValue<AXObserver?>
     private let subscribedWindowIds: ThreadGuardedValue<Set<Int>>
 
     @MainActor static var onWindowDestroyed: ((pid_t, Int) -> Void)?
+    @MainActor static var onWindowMiniaturized: ((pid_t, Int) -> Void)?
     @MainActor static var onFocusedWindowChanged: ((pid_t) -> Void)?
 
     @MainActor static var contexts: [pid_t: AppAXContext] = [:]
@@ -114,6 +116,7 @@ final class AppAXContext {
         _ axApp: ThreadGuardedValue<AXUIElement>,
         _ windows: ThreadGuardedValue<[Int: AXUIElement]>,
         _ observer: ThreadGuardedValue<AXObserver?>,
+        _ focusedWindowObserver: ThreadGuardedValue<AXObserver?>,
         _ subscribedWindowIds: ThreadGuardedValue<Set<Int>>,
         _ thread: Thread
     ) {
@@ -122,6 +125,7 @@ final class AppAXContext {
         self.axApp = axApp
         self.windows = windows
         axObserver = observer
+        self.focusedWindowObserver = focusedWindowObserver
         self.subscribedWindowIds = subscribedWindowIds
         self.thread = thread
     }
@@ -175,7 +179,7 @@ final class AppAXContext {
                     let axApp = AXUIElementCreateApplication(pid)
 
                     var observer: AXObserver?
-                    AXObserverCreate(pid, axWindowDestroyedCallback, &observer)
+                    AXObserverCreate(pid, axWindowNotificationCallback, &observer)
 
                     if let obs = observer {
                         CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(obs), .defaultMode)
@@ -197,6 +201,7 @@ final class AppAXContext {
                     let guardedAxApp = ThreadGuardedValue(axApp)
                     let guardedWindows = ThreadGuardedValue([Int: AXUIElement]())
                     let guardedObserver = ThreadGuardedValue(observer)
+                    let guardedFocusedWindowObserver = ThreadGuardedValue(focusObserver)
                     let guardedSubscribedWindowIds = ThreadGuardedValue(Set<Int>())
                     let currentThread = Thread.current
 
@@ -208,6 +213,7 @@ final class AppAXContext {
                             guardedAxApp,
                             guardedWindows,
                             guardedObserver,
+                            guardedFocusedWindowObserver,
                             guardedSubscribedWindowIds,
                             currentThread
                         )
@@ -260,6 +266,46 @@ final class AppAXContext {
                 AppAXContext.onWindowDestroyed?(pid, windowId)
             }
         }
+    }
+
+    nonisolated static func handleWindowMiniaturizedCallback(
+        pid: pid_t,
+        refcon: UnsafeMutableRawPointer?,
+        handler: (@MainActor @Sendable (pid_t, Int) -> Void)? = nil
+    ) {
+        guard let windowId = destroyNotificationWindowId(from: refcon) else {
+            assertionFailure("Received AX miniaturize callback without a valid windowId refcon")
+            return
+        }
+
+        scheduleOnMainRunLoop {
+            if let handler {
+                handler(pid, windowId)
+            } else {
+                AppAXContext.onWindowMiniaturized?(pid, windowId)
+            }
+        }
+    }
+
+    private nonisolated static func addWindowNotifications(
+        observer: AXObserver,
+        element: AXUIElement,
+        windowId: Int
+    ) -> Bool {
+        guard let refcon = destroyNotificationRefcon(for: windowId) else { return false }
+        let destroyResult = AXObserverAddNotification(
+            observer,
+            element,
+            kAXUIElementDestroyedNotification as CFString,
+            refcon
+        )
+        AXObserverAddNotification(
+            observer,
+            element,
+            kAXWindowMiniaturizedNotification as CFString,
+            refcon
+        )
+        return destroyResult == .success
     }
 
     func getWindowsAsync() async throws -> [(AXWindowRef, Int)] {
@@ -334,16 +380,7 @@ final class AppAXContext {
                 results.append((axRef, windowId))
 
                 if !subscribedWindowIds.contains(windowId), let obs = axObserver.value {
-                    guard let destroyRefcon = AppAXContext.destroyNotificationRefcon(for: windowId) else {
-                        continue
-                    }
-                    let subResult = AXObserverAddNotification(
-                        obs,
-                        element,
-                        kAXUIElementDestroyedNotification as CFString,
-                        destroyRefcon
-                    )
-                    if subResult == .success {
+                    if AppAXContext.addWindowNotifications(observer: obs, element: element, windowId: windowId) {
                         subscribedWindowIds.insert(windowId)
                     }
                 }
@@ -391,16 +428,13 @@ final class AppAXContext {
 
             subscribedWindowIds.remove(oldWindowId)
             if !subscribedWindowIds.contains(newWindow.windowId),
-               let observer = axObserver.value,
-               let destroyRefcon = AppAXContext.destroyNotificationRefcon(for: newWindow.windowId)
+               let observer = axObserver.value
             {
-                let result = AXObserverAddNotification(
-                    observer,
-                    newWindow.element,
-                    kAXUIElementDestroyedNotification as CFString,
-                    destroyRefcon
-                )
-                if result == .success {
+                if AppAXContext.addWindowNotifications(
+                    observer: observer,
+                    element: newWindow.element,
+                    windowId: newWindow.windowId
+                ) {
                     subscribedWindowIds.insert(newWindow.windowId)
                 }
             }
@@ -561,12 +595,16 @@ final class AppAXContext {
         activeFrameBatchJobs = [:]
 
         nonisolated(unsafe) let appThread = thread
-        appThread?.runInLoopAsync { [windows, axApp, axObserver, subscribedWindowIds] _ in
+        appThread?.runInLoopAsync { [windows, axApp, axObserver, focusedWindowObserver, subscribedWindowIds] _ in
             if let obs = axObserver.valueIfExists.flatMap({ $0 }) {
                 CFRunLoopRemoveSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(obs), .defaultMode)
             }
+            if let focusObs = focusedWindowObserver.valueIfExists.flatMap({ $0 }) {
+                CFRunLoopRemoveSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(focusObs), .defaultMode)
+            }
             subscribedWindowIds.destroy()
             axObserver.destroy()
+            focusedWindowObserver.destroy()
             windows.destroy()
             axApp.destroy()
             CFRunLoopStop(CFRunLoopGetCurrent())
@@ -592,6 +630,7 @@ final class AppAXContext {
                     let guardedAxApp = ThreadGuardedValue(axApp)
                     let guardedWindows = ThreadGuardedValue([Int: AXUIElement]())
                     let guardedObserver = ThreadGuardedValue<AXObserver?>(nil)
+                    let guardedFocusedWindowObserver = ThreadGuardedValue<AXObserver?>(nil)
                     let guardedSubscribedWindowIds = ThreadGuardedValue(Set<Int>())
                     let currentThread = Thread.current
 
@@ -602,6 +641,7 @@ final class AppAXContext {
                                 guardedAxApp,
                                 guardedWindows,
                                 guardedObserver,
+                                guardedFocusedWindowObserver,
                                 guardedSubscribedWindowIds,
                                 currentThread
                             )
@@ -710,18 +750,25 @@ private func applyFrameWriteRequest(
     )
 }
 
-private func axWindowDestroyedCallback(
+private func axWindowNotificationCallback(
     _: AXObserver,
     _ element: AXUIElement,
     _ notification: CFString,
     _ refcon: UnsafeMutableRawPointer?
 ) {
-    guard (notification as String) == (kAXUIElementDestroyedNotification as String) else { return }
+    let notificationName = notification as String
+    let isDestroyed = notificationName == (kAXUIElementDestroyedNotification as String)
+    let isMiniaturized = notificationName == (kAXWindowMiniaturizedNotification as String)
+    guard isDestroyed || isMiniaturized else { return }
 
     var pid: pid_t = 0
     guard AXUIElementGetPid(element, &pid) == .success else { return }
 
-    AppAXContext.handleWindowDestroyedCallback(pid: pid, refcon: refcon)
+    if isDestroyed {
+        AppAXContext.handleWindowDestroyedCallback(pid: pid, refcon: refcon)
+    } else {
+        AppAXContext.handleWindowMiniaturizedCallback(pid: pid, refcon: refcon)
+    }
 }
 
 private func axFocusedWindowChangedCallback(

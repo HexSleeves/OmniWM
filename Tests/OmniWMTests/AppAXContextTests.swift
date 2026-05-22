@@ -131,6 +131,22 @@ private func waitForSemaphore(
         #expect(contexts.allSatisfy { $0 === expectedContext })
     }
 
+    @Test @MainActor func miniaturizeCallbackDispatchesEncodedWindowId() async {
+        let expectedPid: pid_t = 41_001
+        let expectedWindowId = 41_002
+        let result = await withCheckedContinuation { continuation in
+            AppAXContext.handleWindowMiniaturizedCallback(
+                pid: expectedPid,
+                refcon: AppAXContext.destroyNotificationRefcon(for: expectedWindowId)
+            ) { pid, windowId in
+                continuation.resume(returning: (pid, windowId))
+            }
+        }
+
+        #expect(result.0 == expectedPid)
+        #expect(result.1 == expectedWindowId)
+    }
+
     @Test @MainActor func cancelingOneWindowDoesNotAbortSiblingWriteInSameBatch() async throws {
         try await withAXFrameProviderIsolationForTests {
             guard let context = await AppAXContext.makeForTests() else {

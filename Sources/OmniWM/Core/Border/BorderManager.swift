@@ -9,6 +9,7 @@ final class BorderManager {
     private var lastAppliedWindowId: Int?
     private let borderWindowOperations: BorderWindow.Operations
     private let surfaceCoordinator = SurfaceCoordinator.shared
+    private var registeredSurfaceWindowNumber: Int?
 
     init(
         config: BorderConfig = BorderConfig(),
@@ -36,15 +37,16 @@ final class BorderManager {
         }
     }
 
+    @discardableResult
     func updateFocusedWindow(
         frame: CGRect,
         windowId: Int?,
         forceOrdering: Bool = false
-    ) {
-        guard config.enabled else { return }
+    ) -> Bool {
+        guard config.enabled else { return false }
         guard frame.width > 0, frame.height > 0 else {
             hideBorder()
-            return
+            return false
         }
 
         if borderWindow == nil {
@@ -55,7 +57,7 @@ final class BorderManager {
             borderWindow?.hide()
             lastAppliedFrame = nil
             lastAppliedWindowId = nil
-            return
+            return false
         }
 
         let targetWid = UInt32(windowId)
@@ -68,13 +70,16 @@ final class BorderManager {
                 lastAppliedWindowId = windowId
                 syncSurfaceRegistration()
             }
-            return
+            return true
         }
 
-        borderWindow?.update(frame: frame, targetWid: targetWid, forceOrdering: forceOrdering)
+        guard borderWindow?.update(frame: frame, targetWid: targetWid, forceOrdering: forceOrdering) == true else {
+            return false
+        }
         lastAppliedFrame = frame
         lastAppliedWindowId = windowId
         syncSurfaceRegistration()
+        return true
     }
 
     func hideBorder() {
@@ -82,6 +87,7 @@ final class BorderManager {
         lastAppliedFrame = nil
         lastAppliedWindowId = nil
         surfaceCoordinator.unregister(id: surfaceID)
+        registeredSurfaceWindowNumber = nil
     }
 
     var lastAppliedFocusedWindowIdForTests: Int? {
@@ -102,8 +108,10 @@ final class BorderManager {
     private func syncSurfaceRegistration() {
         guard let borderWindow, let windowNumber = borderWindow.windowId.map(Int.init) else {
             surfaceCoordinator.unregister(id: surfaceID)
+            registeredSurfaceWindowNumber = nil
             return
         }
+        guard registeredSurfaceWindowNumber != windowNumber else { return }
 
         surfaceCoordinator.registerWindowNumber(
             id: surfaceID,
@@ -121,6 +129,7 @@ final class BorderManager {
                 suppressesManagedFocusRecovery: false
             )
         )
+        registeredSurfaceWindowNumber = windowNumber
     }
 
     private var surfaceID: String {

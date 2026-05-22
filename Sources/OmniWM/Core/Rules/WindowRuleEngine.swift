@@ -188,7 +188,14 @@ struct WindowDecisionDebugSnapshot: Equatable, Sendable {
 @MainActor
 final class WindowRuleEngine {
     static let cleanShotBundleId = "pl.maketheweb.cleanshotx"
+    static let systemTextInputPanelRuleName = "systemTextInputPanel"
     private static let cleanShotRecordingOverlayRuleName = "cleanShotRecordingOverlay"
+    private static let systemTextInputPanelBundleIds: Set<String> = [
+        "com.apple.characterpaletteim",
+        "com.apple.emojifunctionrowitem-container",
+        "com.apple.textinputmenuagent",
+        "com.apple.textinputswitcher"
+    ]
 
     private enum RuleSource {
         case user
@@ -305,6 +312,20 @@ final class WindowRuleEngine {
         appFullscreen: Bool,
         allowDegradedWindowServerFloatingFallback: Bool = false
     ) -> WindowDecision {
+        if let bundleId = facts.ax.bundleId?.lowercased(),
+           Self.systemTextInputPanelBundleIds.contains(bundleId)
+        {
+            return WindowDecision(
+                disposition: .unmanaged,
+                source: .builtInRule(Self.systemTextInputPanelRuleName),
+                layoutDecisionKind: .explicitLayout,
+                workspaceName: nil,
+                ruleEffects: .none,
+                heuristicReasons: [],
+                deferredReason: nil
+            )
+        }
+
         let userRule = bestMatch(in: compiledUserRules, facts: facts)
         let builtInRule = bestMatch(in: builtInRules, facts: facts)
 

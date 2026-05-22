@@ -84,15 +84,11 @@ import QuartzCore
 
         if !engine.hasActiveAnimations(in: wsId, at: targetTime) {
             controller.layoutRefreshController.stopDwindleAnimation(for: displayId)
-            if case .none = plan.diff.borderMode {
-                return
-            }
             if let focusedFrame = plan.diff.focusedFrame {
                 _ = controller.reapplyKeyboardFocusBorderIfMatching(
                     token: focusedFrame.token,
                     preferredFrame: focusedFrame.frame,
                     phase: .animationSettled,
-                    policy: .direct,
                     forceOrdering: true
                 )
             }
@@ -350,7 +346,6 @@ import QuartzCore
             frames: newFrames,
             selectedToken: rememberedFocusToken,
             confirmedFocusedToken: snapshot.confirmedFocusedToken,
-            directBorderUpdate: animationsActive,
             canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace
         )
         let directives: [AnimationDirective] = animationsActive
@@ -384,7 +379,6 @@ import QuartzCore
             frames: frames,
             selectedToken: snapshot.selectedToken,
             confirmedFocusedToken: snapshot.confirmedFocusedToken,
-            directBorderUpdate: true,
             canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace
         )
 
@@ -412,14 +406,11 @@ import QuartzCore
             in: snapshot.workspaceId,
             at: targetTime
         )
-        let animationsActive = engine.hasActiveAnimations(in: snapshot.workspaceId, at: targetTime)
         let diff = layoutDiff(
             windows: snapshot.windows,
             frames: animatedFrames,
             selectedToken: snapshot.selectedToken,
             confirmedFocusedToken: snapshot.confirmedFocusedToken,
-            directBorderUpdate: animationsActive,
-            borderMode: animationsActive ? .direct : .coordinated,
             canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace
         )
 
@@ -436,8 +427,6 @@ import QuartzCore
         frames: [WindowToken: CGRect],
         selectedToken: WindowToken?,
         confirmedFocusedToken: WindowToken?,
-        directBorderUpdate: Bool,
-        borderMode: BorderUpdateMode? = nil,
         canRestoreHiddenWorkspaceWindows: Bool
     ) -> WorkspaceLayoutDiff {
         var diff = WorkspaceLayoutDiff()
@@ -446,17 +435,6 @@ import QuartzCore
                 .filter(\.isNativeFullscreenSuspended)
                 .map(\.token)
         )
-        if let confirmedFocusedToken {
-            let ownsFocusedToken = windows.contains {
-                $0.token == confirmedFocusedToken && !$0.isNativeFullscreenSuspended
-            }
-            diff.borderMode = ownsFocusedToken
-                ? (borderMode ?? (directBorderUpdate ? .direct : .coordinated))
-                : .none
-        } else {
-            diff.borderMode = borderMode ?? (directBorderUpdate ? .direct : .coordinated)
-        }
-
         for window in windows {
             if window.isNativeFullscreenSuspended {
                 if canRestoreHiddenWorkspaceWindows,

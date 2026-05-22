@@ -109,10 +109,10 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         controller.setBordersEnabled(true)
 
         let frame = CGRect(x: 120, y: 80, width: 900, height: 640)
+        _ = confirmFocusedBorderForLayoutPlanTests(on: controller, token: token, frame: frame.offsetBy(dx: -20, dy: -20))
         var diff = WorkspaceLayoutDiff()
         diff.frameChanges = [LayoutFrameChange(token: token, frame: frame, forceApply: false)]
         diff.focusedFrame = LayoutFocusedFrame(token: token, frame: frame)
-        diff.borderMode = .direct
 
         let plan = WorkspaceLayoutPlan(
             workspaceId: workspaceId,
@@ -156,7 +156,6 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
             )
         ]
         diff.focusedFrame = LayoutFocusedFrame(token: token, frame: frame)
-        diff.borderMode = .direct
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -648,7 +647,6 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
 
         var hideDiff = WorkspaceLayoutDiff()
         hideDiff.visibilityChanges = [.hide(token, side: .right)]
-        hideDiff.borderMode = .none
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -663,7 +661,6 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
 
         var showDiff = WorkspaceLayoutDiff()
         showDiff.visibilityChanges = [.show(token)]
-        showDiff.borderMode = .none
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -694,17 +691,17 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         let layoutFrame = CGRect(x: 120, y: 80, width: 900, height: 640)
         let observedFrame = CGRect(x: 120, y: 56, width: 900, height: 664)
         var observedReadCount = 0
-        controller.borderCoordinator.observedFrameProviderForTests = { axRef in
+        controller.focusBorderController.observedFrameProviderForTests = { axRef in
             observedReadCount += 1
             return axRef.windowId == 205 ? observedFrame : nil
         }
         defer {
-            controller.borderCoordinator.observedFrameProviderForTests = nil
+            controller.focusBorderController.observedFrameProviderForTests = nil
         }
+        _ = confirmFocusedBorderForLayoutPlanTests(on: controller, token: token, frame: layoutFrame)
 
         var diff = WorkspaceLayoutDiff()
         diff.focusedFrame = LayoutFocusedFrame(token: token, frame: layoutFrame)
-        diff.borderMode = .coordinated
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -737,17 +734,17 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         let layoutFrame = CGRect(x: 240, y: 96, width: 840, height: 600)
         let observedFrame = CGRect(x: 240, y: 72, width: 840, height: 624)
         var observedReadCount = 0
-        controller.borderCoordinator.observedFrameProviderForTests = { axRef in
+        controller.focusBorderController.observedFrameProviderForTests = { axRef in
             observedReadCount += 1
             return axRef.windowId == 206 ? observedFrame : nil
         }
         defer {
-            controller.borderCoordinator.observedFrameProviderForTests = nil
+            controller.focusBorderController.observedFrameProviderForTests = nil
         }
+        _ = confirmFocusedBorderForLayoutPlanTests(on: controller, token: token, frame: layoutFrame)
 
         var diff = WorkspaceLayoutDiff()
         diff.focusedFrame = LayoutFocusedFrame(token: token, frame: layoutFrame)
-        diff.borderMode = .direct
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -785,8 +782,7 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         let rendered = controller.renderKeyboardFocusBorder(
             for: controller.managedKeyboardFocusTarget(for: token),
             preferredFrame: observedFrame,
-            preferredFrameSource: .observed,
-            policy: .direct
+            preferredFrameSource: .observed
         )
 
         #expect(rendered)
@@ -814,17 +810,16 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         #expect(controller.axManager.pendingFrameWrite(for: token.windowId) == pendingFrame)
 
         let observedFrame = CGRect(x: 260, y: 88, width: 860, height: 644)
-        controller.borderCoordinator.observedFrameProviderForTests = { axRef in
+        controller.focusBorderController.observedFrameProviderForTests = { axRef in
             axRef.windowId == 209 ? observedFrame : nil
         }
         defer {
-            controller.borderCoordinator.observedFrameProviderForTests = nil
+            controller.focusBorderController.observedFrameProviderForTests = nil
         }
 
         let rendered = controller.renderKeyboardFocusBorder(
             for: controller.managedKeyboardFocusTarget(for: token),
-            preferredFrame: pendingFrame,
-            policy: .direct
+            preferredFrame: pendingFrame
         )
 
         #expect(rendered)
@@ -846,19 +841,20 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         controller.setBordersEnabled(true)
         controller.motionPolicy.animationsEnabled = false
 
-        var capturedPolicy: KeyboardFocusBorderRenderPolicy?
-        controller.borderCoordinator.suppressNextKeyboardFocusBorderRenderForTests = { _, policy in
-            capturedPolicy = policy
+        let frame = CGRect(x: 160, y: 96, width: 820, height: 540)
+        _ = confirmFocusedBorderForLayoutPlanTests(on: controller, token: token, frame: frame)
+
+        var capturedToken: WindowToken?
+        controller.focusBorderController.suppressNextRenderForTests = { target in
+            capturedToken = target.token
             return false
         }
         defer {
-            controller.borderCoordinator.suppressNextKeyboardFocusBorderRenderForTests = nil
+            controller.focusBorderController.suppressNextRenderForTests = nil
         }
 
-        let frame = CGRect(x: 160, y: 96, width: 820, height: 540)
         var diff = WorkspaceLayoutDiff()
         diff.focusedFrame = LayoutFocusedFrame(token: token, frame: frame)
-        diff.borderMode = .coordinated
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -869,7 +865,7 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
             )
         )
 
-        #expect(capturedPolicy == .direct)
+        #expect(capturedToken == token)
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 210)
         #expect(lastAppliedBorderFrameForLayoutPlanTests(on: controller) == frame)
     }
@@ -899,22 +895,21 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         controller.workspaceManager.updateNiriViewportState(state, for: workspaceId)
 
         var observedReadCount = 0
-        controller.borderCoordinator.observedFrameProviderForTests = { _ in
+        controller.focusBorderController.observedFrameProviderForTests = { _ in
             observedReadCount += 1
             return CGRect(x: 64, y: 64, width: 640, height: 480)
         }
         defer {
-            controller.borderCoordinator.observedFrameProviderForTests = nil
+            controller.focusBorderController.observedFrameProviderForTests = nil
         }
 
         let rendered = controller.renderKeyboardFocusBorder(
-            for: controller.managedKeyboardFocusTarget(for: token),
-            policy: .coordinated
+            for: controller.managedKeyboardFocusTarget(for: token)
         )
 
-        #expect(!rendered)
-        #expect(observedReadCount == 0)
-        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == nil)
+        #expect(rendered)
+        #expect(observedReadCount == 1)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 211)
     }
 
     @Test @MainActor func directManagedBorderUpdateFallsBackToPreferredFrameBeforeCachedFrameWhenObservedReadMisses() {
@@ -936,16 +931,15 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         #expect(controller.axManager.lastAppliedFrame(for: token.windowId) == staleCachedFrame)
 
         controller.axManager.frameApplyOverrideForTests = nil
-        controller.borderCoordinator.observedFrameProviderForTests = { _ in nil }
+        controller.focusBorderController.observedFrameProviderForTests = { _ in nil }
         defer {
-            controller.borderCoordinator.observedFrameProviderForTests = nil
+            controller.focusBorderController.observedFrameProviderForTests = nil
         }
 
         let freshPreferredFrame = CGRect(x: 132, y: 88, width: 840, height: 560)
         let rendered = controller.renderKeyboardFocusBorder(
             for: controller.managedKeyboardFocusTarget(for: token),
-            preferredFrame: freshPreferredFrame,
-            policy: .direct
+            preferredFrame: freshPreferredFrame
         )
 
         #expect(rendered)
@@ -969,12 +963,13 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         let originalFrame = CGRect(x: 96, y: 72, width: 840, height: 540)
         controller.axManager.applyFramesParallel([(token.pid, token.windowId, originalFrame)])
         #expect(controller.axManager.lastAppliedFrame(for: token.windowId) == originalFrame)
+        _ = confirmFocusedBorderForLayoutPlanTests(on: controller, token: token, frame: originalFrame)
 
-        controller.borderCoordinator.observedFrameProviderForTests = { axRef in
+        controller.focusBorderController.observedFrameProviderForTests = { axRef in
             axRef.windowId == token.windowId ? originalFrame : nil
         }
         defer {
-            controller.borderCoordinator.observedFrameProviderForTests = nil
+            controller.focusBorderController.observedFrameProviderForTests = nil
         }
 
         controller.axManager.frameApplyOverrideForTests = { requests in
@@ -1004,7 +999,6 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         var diff = WorkspaceLayoutDiff()
         diff.frameChanges = [LayoutFrameChange(token: token, frame: failedTarget, forceApply: false)]
         diff.focusedFrame = LayoutFocusedFrame(token: token, frame: failedTarget)
-        diff.borderMode = .coordinated
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -1197,7 +1191,6 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
                 )
             )
         ]
-        diff.borderMode = .none
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -1212,7 +1205,7 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         #expect(controller.axManager.lastAppliedFrame(for: 250) == frame)
     }
 
-    @Test @MainActor func executeLayoutPlanHidesBorderWhenFocusedFrameIsMissing() {
+    @Test @MainActor func executeLayoutPlanPreservesBorderWhenFocusedFrameIsMissing() {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
               let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
@@ -1231,7 +1224,11 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
             token: token,
             frame: CGRect(x: 20, y: 20, width: 400, height: 300)
         )
-        primingDiff.borderMode = .direct
+        _ = confirmFocusedBorderForLayoutPlanTests(
+            on: controller,
+            token: token,
+            frame: CGRect(x: 20, y: 20, width: 400, height: 300)
+        )
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -1244,8 +1241,7 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
 
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 303)
 
-        var hideBorderDiff = WorkspaceLayoutDiff()
-        hideBorderDiff.borderMode = .coordinated
+        let hideBorderDiff = WorkspaceLayoutDiff()
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -1256,7 +1252,38 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
             )
         )
 
-        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == nil)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 303)
+    }
+
+    @Test @MainActor func focusedFrameEstablishesBorderForConfirmedManagedFocus() {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for focused frame border test")
+            return
+        }
+
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 309)
+        _ = controller.workspaceManager.setManagedFocus(token, in: workspaceId, onMonitor: monitor.id)
+        controller.setBordersEnabled(true)
+
+        let frame = CGRect(x: 44, y: 48, width: 460, height: 340)
+        var diff = WorkspaceLayoutDiff()
+        diff.focusedFrame = LayoutFocusedFrame(token: token, frame: frame)
+
+        controller.layoutRefreshController.executeLayoutPlan(
+            WorkspaceLayoutPlan(
+                workspaceId: workspaceId,
+                monitor: controller.layoutRefreshController.buildMonitorSnapshot(for: monitor),
+                sessionPatch: WorkspaceSessionPatch(workspaceId: workspaceId),
+                diff: diff
+            )
+        )
+
+        #expect(controller.currentKeyboardFocusTargetForRendering()?.token == token)
+        #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == token.windowId)
+        #expect(lastAppliedBorderFrameForLayoutPlanTests(on: controller) == frame)
     }
 
     @Test @MainActor func directBorderUpdateRespectsPreservedNonManagedFocus() {
@@ -1273,9 +1300,9 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         controller.setBordersEnabled(true)
 
         let frame = CGRect(x: 24, y: 24, width: 420, height: 320)
+        _ = confirmFocusedBorderForLayoutPlanTests(on: controller, token: token, frame: frame)
         var primingDiff = WorkspaceLayoutDiff()
         primingDiff.focusedFrame = LayoutFocusedFrame(token: token, frame: frame)
-        primingDiff.borderMode = .direct
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -1292,14 +1319,13 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
             appFullscreen: false,
             preserveFocusedToken: true
         )
-        controller.borderManager.hideBorder()
+        controller.focusBorderController.clear()
         #expect(controller.workspaceManager.focusedToken == token)
         #expect(controller.workspaceManager.isNonManagedFocusActive)
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == nil)
 
         var diff = WorkspaceLayoutDiff()
         diff.focusedFrame = LayoutFocusedFrame(token: token, frame: frame.offsetBy(dx: 12, dy: 8))
-        diff.borderMode = .direct
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -1329,9 +1355,9 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         _ = controller.workspaceManager.setManagedFocus(oldToken, in: workspaceId, onMonitor: monitor.id)
 
         let oldFrame = CGRect(x: 28, y: 28, width: 420, height: 320)
+        _ = confirmFocusedBorderForLayoutPlanTests(on: controller, token: oldToken, frame: oldFrame)
         var primingDiff = WorkspaceLayoutDiff()
         primingDiff.focusedFrame = LayoutFocusedFrame(token: oldToken, frame: oldFrame)
-        primingDiff.borderMode = .coordinated
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -1344,15 +1370,10 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
 
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 307)
 
-        controller.borderCoordinator.suppressNextManagedBorderUpdateForTests = { token, mode in
-            token == newToken && mode == .direct
-        }
-
         let newFrame = CGRect(x: 520, y: 32, width: 420, height: 320)
         var diff = WorkspaceLayoutDiff()
         diff.frameChanges = [LayoutFrameChange(token: newToken, frame: newFrame, forceApply: false)]
         diff.focusedFrame = LayoutFocusedFrame(token: newToken, frame: newFrame)
-        diff.borderMode = .none
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -1384,9 +1405,9 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         controller.setBordersEnabled(true)
 
         let focusedFrame = CGRect(x: 32, y: 32, width: 420, height: 320)
+        _ = confirmFocusedBorderForLayoutPlanTests(on: controller, token: focusedToken, frame: focusedFrame)
         var primingDiff = WorkspaceLayoutDiff()
         primingDiff.focusedFrame = LayoutFocusedFrame(token: focusedToken, frame: focusedFrame)
-        primingDiff.borderMode = .coordinated
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -1403,7 +1424,6 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         let staleFrame = focusedFrame.offsetBy(dx: 80, dy: 24)
         var directDiff = WorkspaceLayoutDiff()
         directDiff.focusedFrame = LayoutFocusedFrame(token: staleToken, frame: staleFrame)
-        directDiff.borderMode = .direct
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -1419,7 +1439,6 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
 
         var coordinatedDiff = WorkspaceLayoutDiff()
         coordinatedDiff.focusedFrame = LayoutFocusedFrame(token: staleToken, frame: staleFrame.offsetBy(dx: 20, dy: 12))
-        coordinatedDiff.borderMode = .coordinated
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -1456,7 +1475,6 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
                 forceApply: false
             )
         ]
-        diff.borderMode = .none
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -1498,7 +1516,6 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
                 )
             )
         ]
-        diff.borderMode = .none
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -2275,7 +2292,6 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         var diff = WorkspaceLayoutDiff()
         diff.visibilityChanges = [.show(token)]
         diff.frameChanges = [LayoutFrameChange(token: token, frame: frame, forceApply: false)]
-        diff.borderMode = .none
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(
@@ -2436,7 +2452,6 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
                 )
             )
         ]
-        diff.borderMode = .none
 
         controller.layoutRefreshController.executeLayoutPlan(
             WorkspaceLayoutPlan(

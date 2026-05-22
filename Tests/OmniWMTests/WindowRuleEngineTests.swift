@@ -459,6 +459,45 @@ private func makeWindowRuleFacts(
         #expect(decision.heuristicReasons == [.nonStandardSubrole])
     }
 
+    @Test func systemTextInputPanelBundlesAreUnmanagedBeforeFloatingHeuristics() {
+        let engine = WindowRuleEngine()
+        let bundleIds = [
+            "com.apple.CharacterPaletteIM",
+            "com.apple.EmojiFunctionRowItem-Container",
+            "com.apple.TextInputMenuAgent",
+            "com.apple.TextInputSwitcher"
+        ]
+
+        for bundleId in bundleIds {
+            let decision = engine.decision(
+                for: makeWindowRuleFacts(
+                    bundleId: bundleId,
+                    subrole: "AXTextInputTransientPanel",
+                    hasCloseButton: false,
+                    hasFullscreenButton: false,
+                    fullscreenButtonEnabled: nil,
+                    hasZoomButton: false,
+                    hasMinimizeButton: false,
+                    appPolicy: .accessory,
+                    windowServer: WindowServerInfo(id: 7, pid: 41, level: 3, frame: .zero)
+                ),
+                token: nil,
+                appFullscreen: false,
+                allowDegradedWindowServerFloatingFallback: true
+            )
+
+            #expect(decision.disposition == .unmanaged)
+            #expect(decision.trackedMode == nil)
+            #expect(decision.admissionOutcome == .ignored)
+            #expect(decision.heuristicReasons.isEmpty)
+            if case let .builtInRule(name) = decision.source {
+                #expect(name == WindowRuleEngine.systemTextInputPanelRuleName)
+            } else {
+                Issue.record("Expected system text input panel built-in rule for \(bundleId)")
+            }
+        }
+    }
+
     @Test func builtInPictureInPictureRuleEnablesTitleReevaluation() {
         let engine = WindowRuleEngine()
 

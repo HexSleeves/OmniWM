@@ -39,7 +39,6 @@ struct ManagedFocusRequest: Equatable {
 
 @MainActor
 final class FocusBridgeCoordinator {
-    private(set) var focusedTarget: KeyboardFocusTarget?
     private(set) var activeManagedRequest: ManagedFocusRequest?
     private var nextRequestId: UInt64 = 1
     private var pendingFocusToken: WindowToken?
@@ -204,55 +203,7 @@ final class FocusBridgeCoordinator {
         }
     }
 
-    func setFocusedTarget(_ target: KeyboardFocusTarget?) {
-        focusedTarget = target
-    }
-
-    func clearFocusedTarget(
-        matching token: WindowToken? = nil,
-        pid: pid_t? = nil
-    ) {
-        guard let focusedTarget else { return }
-
-        let matchesToken = token.map { focusedTarget.token == $0 } ?? true
-        let matchesPid = pid.map { focusedTarget.pid == $0 } ?? true
-        guard matchesToken, matchesPid else { return }
-
-        self.focusedTarget = nil
-    }
-
-    func rekeyFocusedTarget(
-        from oldToken: WindowToken,
-        to newToken: WindowToken,
-        axRef: AXWindowRef,
-        workspaceId: WorkspaceDescriptor.ID?
-    ) {
-        guard let focusedTarget, focusedTarget.token == oldToken else { return }
-        self.focusedTarget = KeyboardFocusTarget(
-            token: newToken,
-            axRef: axRef,
-            workspaceId: workspaceId,
-            isManaged: workspaceId != nil
-        )
-    }
-
-    func updateFocusedTargetWorkspace(
-        matching token: WindowToken,
-        axRef: AXWindowRef,
-        workspaceId: WorkspaceDescriptor.ID?
-    ) {
-        guard let focusedTarget, focusedTarget.token == token else { return }
-
-        self.focusedTarget = KeyboardFocusTarget(
-            token: token,
-            axRef: axRef,
-            workspaceId: workspaceId,
-            isManaged: workspaceId != nil
-        )
-    }
-
     func reset() {
-        focusedTarget = nil
         activeManagedRequest = nil
         nextRequestId = 1
         pendingFocusToken = nil

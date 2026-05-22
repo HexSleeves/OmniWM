@@ -77,6 +77,9 @@ final class ServiceLifecycleManager {
             guard let controller else { return }
             controller.axEventHandler.handleRemoved(pid: pid, winId: windowId)
         }
+        AppAXContext.onWindowMiniaturized = { [weak controller] pid, windowId in
+            controller?.axEventHandler.handleWindowMiniaturized(pid: pid, windowId: windowId)
+        }
         AppAXContext.onFocusedWindowChanged = { [weak controller] pid in
             controller?.axEventHandler.handleAppActivation(
                 pid: pid,
@@ -177,7 +180,7 @@ final class ServiceLifecycleManager {
         guard let controller else { return }
         // Invalidate border cache so it gets fully recomputed after monitor change
         // (prevents stale geometry when display ID or coordinate space changes, e.g. KVM switch)
-        controller.borderManager.hideBorder()
+        controller.focusBorderController.hide()
         guard !currentMonitors.isEmpty else { return }
         guard currentMonitors.allSatisfy({ $0.frame.width > 1 && $0.frame.height > 1 }) else { return }
 
@@ -210,7 +213,7 @@ final class ServiceLifecycleManager {
                 controller.ensureFocusedTokenValid(in: workspaceId)
             }
         }
-        _ = controller.renderKeyboardFocusBorder(policy: .direct, forceOrdering: true)
+        _ = controller.focusBorderController.refresh(forceOrdering: true)
         controller.appInfoCache.evict(pid: pid)
         controller.layoutRefreshController.requestFullRescan(reason: .appTerminated)
     }
@@ -234,7 +237,7 @@ final class ServiceLifecycleManager {
 
     func handleActiveSpaceDidChange() {
         guard let controller else { return }
-        controller.borderManager.hideBorder()
+        controller.focusBorderController.hide()
         controller.workspaceManager.recordReconcileEvent(.activeSpaceChanged(source: .service))
         controller.layoutRefreshController.requestFullRescan(reason: .activeSpaceChanged)
     }
@@ -331,6 +334,7 @@ final class ServiceLifecycleManager {
         controller.hasStartedServices = false
 
         AppAXContext.onWindowDestroyed = nil
+        AppAXContext.onWindowMiniaturized = nil
         AppAXContext.onFocusedWindowChanged = nil
         controller.axManager.onAppLaunched = nil
         controller.axManager.onAppTerminated = nil
@@ -344,7 +348,7 @@ final class ServiceLifecycleManager {
         controller.tabbedOverlayManager.removeAll()
         controller.nativeFullscreenPlaceholderManager.removeAll()
         controller.resizePlaceholderManager.removeAll()
-        controller.borderManager.cleanup()
+        controller.focusBorderController.cleanup()
         controller.cleanupUIOnStop()
 
         controller.axManager.cleanup()

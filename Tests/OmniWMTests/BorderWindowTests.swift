@@ -180,6 +180,60 @@ private func makeBorderTestContext() -> CGContext? {
         #expect(manager.lastAppliedFocusedFrameForTests == frame)
     }
 
+    @Test @MainActor func createFailureDoesNotPoisonManagerFrameDedupe() {
+        var createCount = 0
+        var flushCount = 0
+        var moveOnlyCount = 0
+        var orderedTargets: [UInt32] = []
+        var backingScaleLookups = 0
+
+        let operations = BorderWindow.Operations(
+            createBorderWindow: { _ in
+                createCount += 1
+                return createCount == 1 ? 0 : 906
+            },
+            releaseBorderWindow: { _ in },
+            configureWindow: { _, _, _ in },
+            setWindowTags: { _, _ in },
+            createWindowContext: { _ in makeBorderTestContext() },
+            setWindowShape: { _, _ in },
+            flushWindow: { _ in flushCount += 1 },
+            transactionMove: { _, _ in moveOnlyCount += 1 },
+            transactionMoveAndOrder: { _, _, _, targetWid, _ in orderedTargets.append(targetWid) },
+            transactionHide: { _ in },
+            backingScaleForFrame: { _ in
+                backingScaleLookups += 1
+                return 2.0
+            }
+        )
+        let manager = BorderManager(
+            config: BorderConfig(enabled: true, width: 4, color: .systemBlue),
+            borderWindowOperations: operations
+        )
+        defer { manager.cleanup() }
+
+        let frame = CGRect(x: 120, y: 90, width: 800, height: 600)
+        manager.updateFocusedWindow(frame: frame, windowId: 101)
+
+        #expect(createCount == 1)
+        #expect(flushCount == 0)
+        #expect(moveOnlyCount == 0)
+        #expect(backingScaleLookups == 1)
+        #expect(orderedTargets.isEmpty)
+        #expect(manager.lastAppliedFocusedWindowIdForTests == nil)
+        #expect(manager.lastAppliedFocusedFrameForTests == nil)
+
+        manager.updateFocusedWindow(frame: frame, windowId: 101)
+
+        #expect(createCount == 2)
+        #expect(flushCount == 1)
+        #expect(moveOnlyCount == 0)
+        #expect(backingScaleLookups == 2)
+        #expect(orderedTargets == [101])
+        #expect(manager.lastAppliedFocusedWindowIdForTests == 101)
+        #expect(manager.lastAppliedFocusedFrameForTests == frame)
+    }
+
     @Test @MainActor func hiddenBorderReordersOnNextShow() {
         var moveOnlyCount = 0
         var orderedTargets: [UInt32] = []
