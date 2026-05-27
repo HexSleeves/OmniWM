@@ -344,6 +344,30 @@ private func makeWindowRuleFacts(
         }
     }
 
+    @Test func explicitUserFloatRuleWithAttributeFetchFailureStaysExplicit() {
+        let engine = WindowRuleEngine()
+        let rule = AppRule(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000165")!,
+            bundleId: "com.example.degraded-float",
+            layout: .float
+        )
+        engine.rebuild(rules: [rule])
+
+        let decision = engine.decision(
+            for: makeWindowRuleFacts(
+                bundleId: "com.example.degraded-float",
+                attributeFetchSucceeded: false
+            ),
+            token: nil,
+            appFullscreen: false
+        )
+
+        #expect(decision.disposition == .floating)
+        #expect(decision.source == .userRule(rule.id))
+        #expect(decision.layoutDecisionKind == .explicitLayout)
+        #expect(decision.trackedMode == .floating)
+    }
+
     @Test func missingFullscreenButtonFallsBackToTrackedFloating() {
         let engine = WindowRuleEngine()
 

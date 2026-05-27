@@ -17,6 +17,7 @@ struct ManagedReplacementMetadata: Equatable, Sendable {
     var parentWindowId: UInt32?
     var frame: CGRect?
     var transientWindowServerEvidence = false
+    var degradedWindowServerChildEvidence = false
 
     func mergingNonNilValues(from overlay: ManagedReplacementMetadata) -> ManagedReplacementMetadata {
         ManagedReplacementMetadata(
@@ -29,7 +30,9 @@ struct ManagedReplacementMetadata: Equatable, Sendable {
             windowLevel: overlay.windowLevel ?? windowLevel,
             parentWindowId: overlay.parentWindowId ?? parentWindowId,
             frame: overlay.frame ?? frame,
-            transientWindowServerEvidence: transientWindowServerEvidence || overlay.transientWindowServerEvidence
+            transientWindowServerEvidence: transientWindowServerEvidence || overlay.transientWindowServerEvidence,
+            degradedWindowServerChildEvidence: degradedWindowServerChildEvidence
+                || overlay.degradedWindowServerChildEvidence
         )
     }
 }

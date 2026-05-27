@@ -1167,6 +1167,7 @@ import QuartzCore
                 restrictWorkspaceRuleToPlacementMonitor: false,
                 createPlacementContext: createPlacementContext
             )
+            var restoredNativeFullscreenReplacement = false
             if controller.workspaceAssignment(pid: pid, windowId: winId) == nil,
                controller.axEventHandler.restoreNativeFullscreenReplacementIfNeeded(
                    token: token,
@@ -1176,6 +1177,7 @@ import QuartzCore
                    appFullscreen: appFullscreen
                )
             {
+                restoredNativeFullscreenReplacement = true
                 seenKeys.insert(token)
                 existingEntry = controller.workspaceManager.entry(for: token)
                 controller.axEventHandler.discardCreatePlacementContext(for: winId)
@@ -1187,12 +1189,21 @@ import QuartzCore
                             || existingEntry.layoutReason == .nativeFullscreen
                     )
             } ?? false
-            let effectiveTrackedMode = shouldPreservePreFullscreenState
-                ? existingEntry?.mode
-                : controller.trackedModeForLifecycle(
+            let effectiveTrackedMode: TrackedWindowMode?
+            if shouldPreservePreFullscreenState {
+                effectiveTrackedMode = existingEntry?.mode
+            } else if restoredNativeFullscreenReplacement {
+                effectiveTrackedMode = controller.trackedModeForLifecycle(
                     decision: decision,
                     existingEntry: existingEntry
                 )
+            } else {
+                effectiveTrackedMode = controller.trackedModePreservingAutomaticFallbackState(
+                    decision: decision,
+                    existingEntry: existingEntry,
+                    context: .automatic
+                )
+            }
 
             guard let trackedMode = effectiveTrackedMode else {
                 if existingEntry != nil {
@@ -1294,7 +1305,10 @@ import QuartzCore
                 frame: evaluation.facts.windowServer?.frame ?? existingEntry?.managedReplacementMetadata?.frame,
                 transientWindowServerEvidence: existingEntry?.managedReplacementMetadata?
                     .transientWindowServerEvidence == true
-                    || evaluation.facts.windowServer?.hasTransientSurfaceEvidence == true
+                    || evaluation.facts.windowServer?.hasTransientSurfaceEvidence == true,
+                degradedWindowServerChildEvidence: existingEntry?.managedReplacementMetadata?
+                    .degradedWindowServerChildEvidence == true
+                    || evaluation.facts.degradedWindowServerChildEvidence
             )
 
             _ = controller.workspaceManager.addWindow(

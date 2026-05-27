@@ -8075,6 +8075,186 @@ private func waitUntilAXEventTest(
         #expect(controller.workspaceManager.entry(for: replacementToken)?.workspaceId == replacementWorkspaceId)
     }
 
+    @Test @MainActor func parentedFloatingDialogDoesNotStructurallyRekeyOverParent() async {
+        let bundleId = "com.example.parented-dialog-rekey"
+        let controller = makeAXEventTestController(trackedBundleId: bundleId)
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let parentInfo = makeAXEventWindowInfo(
+            id: 848,
+            title: "Parent",
+            frame: CGRect(x: 120, y: 140, width: 760, height: 520)
+        )
+        let childInfo = makeAXEventWindowInfo(
+            id: 849,
+            title: "Parent Dialog",
+            frame: CGRect(x: 160, y: 180, width: 700, height: 460),
+            parentId: 848
+        )
+        let parentToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 848),
+            pid: getpid(),
+            windowId: 848,
+            to: workspaceId,
+            managedReplacementMetadata: makeManagedReplacementMetadata(
+                bundleId: bundleId,
+                workspaceId: workspaceId,
+                mode: .tiling,
+                title: parentInfo.title,
+                role: kAXWindowRole as String,
+                subrole: kAXDialogSubrole as String,
+                windowServer: parentInfo
+            )
+        )
+        guard let parentEntry = controller.workspaceManager.entry(for: parentToken) else {
+            Issue.record("Missing parent entry")
+            return
+        }
+
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            switch windowId {
+            case 848:
+                parentInfo
+            case 849:
+                childInfo
+            default:
+                nil
+            }
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { axRef, _ in
+            let info = axRef.windowId == 849 ? childInfo : parentInfo
+            return makeAXEventWindowRuleFacts(
+                bundleId: bundleId,
+                title: info.title,
+                role: kAXWindowRole as String,
+                subrole: kAXDialogSubrole as String,
+                windowServer: info
+            )
+        }
+
+        let childToken = WindowToken(pid: getpid(), windowId: 849)
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .destroyed(windowId: 848, spaceId: 0)
+        )
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .created(windowId: 849, spaceId: 0)
+        )
+        controller.axEventHandler.flushPendingManagedReplacementEventsForTests()
+
+        guard let childEntry = controller.workspaceManager.entry(for: childToken) else {
+            Issue.record("Missing child entry")
+            return
+        }
+
+        #expect(controller.workspaceManager.entry(for: parentToken) == nil)
+        #expect(childEntry.handle !== parentEntry.handle)
+        #expect(childEntry.mode == .floating)
+        #expect(structuralManagedReplacementMatchedElapsedMillis(on: controller) == nil)
+    }
+
+    @Test @MainActor func degradedWindowServerChildDoesNotStructurallyRekeyOverParentBurst() async {
+        let bundleId = "com.example.degraded-child-rekey"
+        let controller = makeAXEventTestController(trackedBundleId: bundleId)
+        controller.windowRuleEngine.rebuild(
+            rules: [
+                AppRule(bundleId: bundleId, layout: .float)
+            ]
+        )
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let parentInfo = makeAXEventWindowInfo(
+            id: 850,
+            title: "Parent",
+            frame: CGRect(x: 120, y: 140, width: 760, height: 520)
+        )
+        var childInfo = makeAXEventWindowInfo(
+            id: 851,
+            title: "Parent Degraded Child",
+            frame: CGRect(x: 160, y: 180, width: 700, height: 460),
+            parentId: 850
+        )
+        childInfo.tags = 0x2
+        let parentToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 850),
+            pid: getpid(),
+            windowId: 850,
+            to: workspaceId,
+            managedReplacementMetadata: makeManagedReplacementMetadata(
+                bundleId: bundleId,
+                workspaceId: workspaceId,
+                mode: .tiling,
+                title: parentInfo.title,
+                role: kAXWindowRole as String,
+                subrole: kAXStandardWindowSubrole as String,
+                windowServer: parentInfo
+            )
+        )
+        guard let parentEntry = controller.workspaceManager.entry(for: parentToken) else {
+            Issue.record("Missing parent entry")
+            return
+        }
+
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            switch windowId {
+            case 850:
+                parentInfo
+            case 851:
+                childInfo
+            default:
+                nil
+            }
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { axRef, _ in
+            let info = axRef.windowId == 851 ? childInfo : parentInfo
+            return makeAXEventWindowRuleFacts(
+                bundleId: bundleId,
+                title: info.title,
+                role: kAXWindowRole as String,
+                subrole: kAXStandardWindowSubrole as String,
+                attributeFetchSucceeded: axRef.windowId != 851,
+                windowServer: info
+            )
+        }
+
+        let childToken = WindowToken(pid: getpid(), windowId: 851)
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .destroyed(windowId: 850, spaceId: 0)
+        )
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .created(windowId: 851, spaceId: 0)
+        )
+        controller.axEventHandler.flushPendingManagedReplacementEventsForTests()
+
+        guard let childEntry = controller.workspaceManager.entry(for: childToken) else {
+            Issue.record("Missing child entry")
+            return
+        }
+
+        #expect(controller.workspaceManager.entry(for: parentToken) == nil)
+        #expect(childEntry.handle !== parentEntry.handle)
+        #expect(childEntry.mode == .floating)
+        #expect(childEntry.managedReplacementMetadata?.degradedWindowServerChildEvidence == true)
+        #expect(structuralManagedReplacementMatchedElapsedMillis(on: controller) == nil)
+    }
+
     @Test @MainActor func newParentedStandardWindowFollowsMovedAppWorkspaceWhileAutomaticReevaluationPreservesMove(
     ) async {
         let bundleId = "com.example.rule-workspace"
@@ -9030,6 +9210,341 @@ private func waitUntilAXEventTest(
         #expect(outcome.evaluatedAnyWindow)
         #expect(!outcome.relayoutNeeded)
         #expect(controller.workspaceManager.entry(for: token)?.mode == .tiling)
+    }
+
+    @Test @MainActor func automaticWorkspaceRuleFallbackDoesNotFloatExistingTiledWindow() async {
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let rule = AppRule(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000008261")!,
+            bundleId: "com.example.workspace-fallback",
+            assignToWorkspace: "2"
+        )
+        controller.windowRuleEngine.rebuild(rules: [rule])
+        let pid = getpid()
+        let token = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 827),
+            pid: pid,
+            windowId: 827,
+            to: workspaceId,
+            mode: .tiling,
+            ruleEffects: ManagedWindowRuleEffects(matchedRuleId: rule.id)
+        )
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            guard windowId == 827 else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(
+                bundleId: "com.example.workspace-fallback",
+                hasFullscreenButton: false
+            )
+        }
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            Issue.record("Unexpected relayout reason: \(reason)")
+            return true
+        }
+
+        let outcome = await controller.reevaluateWindowRules(for: [.window(token)])
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(outcome.resolvedAnyTarget)
+        #expect(outcome.evaluatedAnyWindow)
+        #expect(!outcome.relayoutNeeded)
+        #expect(controller.workspaceManager.entry(for: token)?.mode == .tiling)
+    }
+
+    @Test @MainActor func parentedFloatingChildDoesNotRetileNiriParent() async {
+        let bundleId = "com.example.parented-floating-child"
+        let controller = makeAXEventTestController(trackedBundleId: bundleId)
+        installSynchronousFrameApplySuccessOverride(on: controller)
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let rule = AppRule(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000008263")!,
+            bundleId: bundleId,
+            assignToWorkspace: "2"
+        )
+        controller.windowRuleEngine.rebuild(rules: [rule])
+        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+        guard let engine = controller.niriEngine else {
+            Issue.record("Missing Niri engine")
+            return
+        }
+
+        let parentInfo = makeAXEventWindowInfo(
+            id: 830,
+            title: "Browser",
+            frame: CGRect(x: 80, y: 80, width: 900, height: 640)
+        )
+        let siblingInfo = makeAXEventWindowInfo(
+            id: 831,
+            title: "Sibling",
+            frame: CGRect(x: 1040, y: 80, width: 700, height: 640)
+        )
+        var childInfo = makeAXEventWindowInfo(
+            id: 832,
+            title: "Browser Dialog",
+            frame: CGRect(x: 160, y: 140, width: 520, height: 360),
+            parentId: 830
+        )
+        childInfo.tags = 0x2
+        let effects = ManagedWindowRuleEffects(matchedRuleId: rule.id)
+        let parentToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 830),
+            pid: getpid(),
+            windowId: 830,
+            to: workspaceId,
+            mode: .tiling,
+            ruleEffects: effects,
+            managedReplacementMetadata: makeManagedReplacementMetadata(
+                bundleId: bundleId,
+                workspaceId: workspaceId,
+                title: parentInfo.title,
+                windowServer: parentInfo
+            )
+        )
+        let siblingToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 831),
+            pid: getpid(),
+            windowId: 831,
+            to: workspaceId,
+            mode: .tiling,
+            managedReplacementMetadata: makeManagedReplacementMetadata(
+                bundleId: bundleId,
+                workspaceId: workspaceId,
+                title: siblingInfo.title,
+                windowServer: siblingInfo
+            )
+        )
+        guard let parentEntry = controller.workspaceManager.entry(for: parentToken) else {
+            Issue.record("Missing parent entry")
+            return
+        }
+
+        let parentNode = engine.addWindow(token: parentToken, to: workspaceId, afterSelection: nil, focusedToken: parentToken)
+        _ = engine.addWindow(token: siblingToken, to: workspaceId, afterSelection: parentNode.id, focusedToken: parentToken)
+        guard let parentColumn = engine.column(of: parentNode),
+              let parentColumnIndex = engine.columnIndex(of: parentColumn, in: workspaceId)
+        else {
+            Issue.record("Missing parent Niri column")
+            return
+        }
+        parentColumn.width = .fixed(620)
+        parentColumn.cachedWidth = 620
+        let originalParentNodeId = parentNode.id
+        let originalParentColumnWidth = parentColumn.width
+        let originalParentCachedWidth = parentColumn.cachedWidth
+        var parentFactsLookFloating = false
+
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            switch windowId {
+            case 830:
+                parentInfo
+            case 831:
+                siblingInfo
+            case 832:
+                childInfo
+            default:
+                nil
+            }
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { axRef, _ in
+            switch axRef.windowId {
+            case 830:
+                makeAXEventWindowRuleFacts(
+                    bundleId: bundleId,
+                    title: parentInfo.title,
+                    hasFullscreenButton: !parentFactsLookFloating,
+                    windowServer: parentInfo
+                )
+            case 832:
+                makeAXEventWindowRuleFacts(
+                    bundleId: bundleId,
+                    title: childInfo.title,
+                    subrole: kAXDialogSubrole as String,
+                    windowServer: childInfo
+                )
+            default:
+                makeAXEventWindowRuleFacts(
+                    bundleId: bundleId,
+                    title: siblingInfo.title,
+                    windowServer: siblingInfo
+                )
+            }
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .created(windowId: 832, spaceId: 0)
+        )
+        let childToken = WindowToken(pid: getpid(), windowId: 832)
+        await waitUntilAXEventTest(iterations: 240) {
+            controller.workspaceManager.entry(for: childToken) != nil
+        }
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        guard let childEntry = controller.workspaceManager.entry(for: childToken) else {
+            Issue.record("Missing child entry")
+            return
+        }
+        #expect(childEntry.mode == .floating)
+        #expect(engine.findNode(for: childToken) == nil)
+
+        parentFactsLookFloating = true
+        let floatingOutcome = await controller.reevaluateWindowRules(for: [.window(parentToken)])
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        guard let updatedParentNode = engine.findNode(for: parentToken),
+              let updatedParentColumn = engine.column(of: updatedParentNode)
+        else {
+            Issue.record("Missing updated parent Niri state")
+            return
+        }
+        #expect(floatingOutcome.resolvedAnyTarget)
+        #expect(floatingOutcome.evaluatedAnyWindow)
+        #expect(!floatingOutcome.relayoutNeeded)
+        #expect(controller.workspaceManager.entry(for: parentToken)?.handle === parentEntry.handle)
+        #expect(controller.workspaceManager.entry(for: parentToken)?.mode == .tiling)
+        #expect(updatedParentNode.id == originalParentNodeId)
+        #expect(engine.columnIndex(of: updatedParentColumn, in: workspaceId) == parentColumnIndex)
+        #expect(updatedParentColumn.width == originalParentColumnWidth)
+        #expect(abs(updatedParentColumn.cachedWidth - originalParentCachedWidth) < 0.5)
+        #expect(engine.findNode(for: childToken) == nil)
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .destroyed(windowId: 832, spaceId: 0)
+        )
+        await waitUntilAXEventTest(iterations: 240) {
+            controller.workspaceManager.entry(for: childToken) == nil
+        }
+        parentFactsLookFloating = false
+        let restoredOutcome = await controller.reevaluateWindowRules(for: [.window(parentToken)])
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        guard let finalParentNode = engine.findNode(for: parentToken),
+              let finalParentColumn = engine.column(of: finalParentNode)
+        else {
+            Issue.record("Missing final parent Niri state")
+            return
+        }
+        #expect(restoredOutcome.resolvedAnyTarget)
+        #expect(restoredOutcome.evaluatedAnyWindow)
+        #expect(!restoredOutcome.relayoutNeeded)
+        #expect(controller.workspaceManager.entry(for: parentToken)?.mode == .tiling)
+        #expect(finalParentNode.id == originalParentNodeId)
+        #expect(engine.columnIndex(of: finalParentColumn, in: workspaceId) == parentColumnIndex)
+        #expect(finalParentColumn.width == originalParentColumnWidth)
+        #expect(abs(finalParentColumn.cachedWidth - originalParentCachedWidth) < 0.5)
+    }
+
+    @Test @MainActor func automaticTransientFloatingFallbackDoesNotTileExistingDialog() async {
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let rule = AppRule(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000008262")!,
+            bundleId: "com.example.transient-fallback",
+            assignToWorkspace: "2"
+        )
+        controller.windowRuleEngine.rebuild(rules: [rule])
+        let pid = getpid()
+        let token = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 828),
+            pid: pid,
+            windowId: 828,
+            to: workspaceId,
+            mode: .floating,
+            ruleEffects: ManagedWindowRuleEffects(matchedRuleId: rule.id),
+            managedReplacementMetadata: ManagedReplacementMetadata(
+                bundleId: "com.example.transient-fallback",
+                workspaceId: workspaceId,
+                mode: .floating,
+                role: kAXWindowRole as String,
+                subrole: kAXDialogSubrole as String,
+                title: "Transient",
+                windowLevel: 0,
+                parentWindowId: 827,
+                frame: CGRect(x: 120, y: 160, width: 420, height: 300),
+                transientWindowServerEvidence: true
+            )
+        )
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            guard windowId == 828 else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(
+                bundleId: "com.example.transient-fallback",
+                subrole: kAXStandardWindowSubrole as String
+            )
+        }
+
+        let outcome = await controller.reevaluateWindowRules(for: [.window(token)])
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(outcome.resolvedAnyTarget)
+        #expect(outcome.evaluatedAnyWindow)
+        #expect(controller.workspaceManager.entry(for: token)?.mode == .floating)
+    }
+
+    @Test @MainActor func explicitUserFloatReevaluationStillTransitionsExistingTiledWindow() async {
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        controller.windowRuleEngine.rebuild(
+            rules: [
+                AppRule(
+                    bundleId: "com.example.explicit-float-reeval",
+                    layout: .float
+                )
+            ]
+        )
+        let pid = getpid()
+        let token = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 829),
+            pid: pid,
+            windowId: 829,
+            to: workspaceId,
+            mode: .tiling
+        )
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            guard windowId == 829 else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(
+                bundleId: "com.example.explicit-float-reeval",
+                attributeFetchSucceeded: false
+            )
+        }
+
+        let outcome = await controller.reevaluateWindowRules(for: [.window(token)])
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(outcome.resolvedAnyTarget)
+        #expect(outcome.evaluatedAnyWindow)
+        #expect(outcome.relayoutNeeded)
+        #expect(controller.workspaceManager.entry(for: token)?.mode == .floating)
     }
 
     @Test @MainActor func appHideAndUnhideUseVisibilityRouteAndPreserveModelState() async {

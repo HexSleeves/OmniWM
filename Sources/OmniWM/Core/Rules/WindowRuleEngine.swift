@@ -97,6 +97,15 @@ struct WindowRuleFacts: Equatable, Sendable {
     let ax: AXWindowFacts
     let sizeConstraints: WindowSizeConstraints?
     let windowServer: WindowServerInfo?
+
+    var degradedWindowServerChildEvidence: Bool {
+        guard !ax.attributeFetchSucceeded,
+              let windowServer
+        else {
+            return false
+        }
+        return windowServer.hasModalTag || (windowServer.hasFloatingTag && !windowServer.hasDocumentTag)
+    }
 }
 
 enum WindowRuleReevaluationTarget: Hashable, Sendable {

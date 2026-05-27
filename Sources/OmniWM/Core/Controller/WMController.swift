@@ -1833,7 +1833,7 @@ final class WMController {
         return nil
     }
 
-    private func trackedModeForAutomaticReevaluation(
+    func trackedModePreservingAutomaticFallbackState(
         decision: WindowDecision,
         existingEntry: WindowModel.Entry?,
         context: WindowRuleReevaluationContext
@@ -1845,26 +1845,27 @@ final class WMController {
             return nil
         }
 
-        if context == .automatic,
-           let existingEntry,
-           existingEntry.mode == .floating,
+        guard context == .automatic,
+              let existingEntry,
+              decision.layoutDecisionKind == .fallbackLayout
+        else {
+            return trackedMode
+        }
+
+        if existingEntry.mode == .floating,
            trackedMode == .tiling,
-           decision.source == .heuristic,
            existingEntry.managedReplacementMetadata?.transientWindowServerEvidence == true
         {
             return .floating
         }
 
-        guard context == .automatic,
-              let existingEntry,
-              existingEntry.mode == .tiling,
-              trackedMode == .floating,
-              decision.source == .heuristic
-        else {
-            return trackedMode
+        if existingEntry.mode == .tiling,
+           trackedMode == .floating
+        {
+            return .tiling
         }
 
-        return .tiling
+        return trackedMode
     }
 
     func resolvedWorkspaceId(
@@ -2115,7 +2116,7 @@ final class WMController {
             evaluatedAnyWindow = true
             let evaluation = evaluateWindowDisposition(axRef: axRef, pid: token.pid)
 
-            guard let effectiveTrackedMode = trackedModeForAutomaticReevaluation(
+            guard let effectiveTrackedMode = trackedModePreservingAutomaticFallbackState(
                 decision: evaluation.decision,
                 existingEntry: existingEntry,
                 context: context
@@ -2216,7 +2217,10 @@ final class WMController {
                         frame: evaluation.facts.windowServer?.frame ?? updatedEntry.managedReplacementMetadata?.frame,
                         transientWindowServerEvidence: updatedEntry.managedReplacementMetadata?
                             .transientWindowServerEvidence == true
-                            || evaluation.facts.windowServer?.hasTransientSurfaceEvidence == true
+                            || evaluation.facts.windowServer?.hasTransientSurfaceEvidence == true,
+                        degradedWindowServerChildEvidence: updatedEntry.managedReplacementMetadata?
+                            .degradedWindowServerChildEvidence == true
+                            || evaluation.facts.degradedWindowServerChildEvidence
                     ),
                     for: token
                 )

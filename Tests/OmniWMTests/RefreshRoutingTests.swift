@@ -880,6 +880,178 @@ private func syncNiriWorkspaceStatesForRefreshTests(
         #expect(!controller.workspaceBarRefreshDebugState.isQueued)
     }
 
+    @Test @MainActor func fullRescanFallbackFloatingDoesNotRetileExistingNiriParent() async {
+        let bundleId = "com.example.full-rescan-parent"
+        let controller = makeRefreshTestController()
+        defer { cleanupRefreshTestController(controller) }
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let rule = AppRule(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000864")!,
+            bundleId: bundleId,
+            assignToWorkspace: "2"
+        )
+        controller.windowRuleEngine.rebuild(rules: [rule])
+        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        await waitForRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+        guard let engine = controller.niriEngine else {
+            Issue.record("Missing Niri engine")
+            return
+        }
+
+        let effects = ManagedWindowRuleEffects(matchedRuleId: rule.id)
+        let parentToken = controller.workspaceManager.addWindow(
+            makeRefreshTestWindow(windowId: 860),
+            pid: getpid(),
+            windowId: 860,
+            to: workspaceId,
+            mode: .tiling,
+            ruleEffects: effects
+        )
+        let siblingToken = controller.workspaceManager.addWindow(
+            makeRefreshTestWindow(windowId: 861),
+            pid: getpid(),
+            windowId: 861,
+            to: workspaceId,
+            mode: .tiling
+        )
+        let parentNode = engine.addWindow(token: parentToken, to: workspaceId, afterSelection: nil, focusedToken: parentToken)
+        _ = engine.addWindow(token: siblingToken, to: workspaceId, afterSelection: parentNode.id, focusedToken: parentToken)
+        guard let parentColumn = engine.column(of: parentNode),
+              let parentColumnIndex = engine.columnIndex(of: parentColumn, in: workspaceId)
+        else {
+            Issue.record("Missing parent Niri column")
+            return
+        }
+        parentColumn.width = .fixed(640)
+        parentColumn.cachedWidth = 640
+        let originalParentNodeId = parentNode.id
+        let originalParentColumnWidth = parentColumn.width
+        let originalParentCachedWidth = parentColumn.cachedWidth
+
+        controller.axManager.currentWindowsAsyncOverride = {
+            [
+                (makeRefreshTestWindow(windowId: 860), getpid(), 860),
+                (makeRefreshTestWindow(windowId: 861), getpid(), 861)
+            ]
+        }
+        controller.axEventHandler.windowFactsProvider = { axRef, _ in
+            makeRefreshTestWindowFacts(
+                bundleId: bundleId,
+                title: axRef.windowId == 860 ? "Parent" : "Sibling",
+                hasFullscreenButton: axRef.windowId != 860
+            )
+        }
+
+        controller.layoutRefreshController.requestFullRescan(reason: .activeSpaceChanged)
+        await waitForSettledRefreshWork(on: controller)
+
+        guard let updatedParentNode = engine.findNode(for: parentToken),
+              let updatedParentColumn = engine.column(of: updatedParentNode)
+        else {
+            Issue.record("Missing updated parent Niri state")
+            return
+        }
+
+        #expect(controller.workspaceManager.entry(for: parentToken)?.mode == .tiling)
+        #expect(updatedParentNode.id == originalParentNodeId)
+        #expect(engine.columnIndex(of: updatedParentColumn, in: workspaceId) == parentColumnIndex)
+        #expect(updatedParentColumn.width == originalParentColumnWidth)
+        #expect(abs(updatedParentColumn.cachedWidth - originalParentCachedWidth) < 0.5)
+    }
+
+    @Test @MainActor func fullRescanFallbackFloatingDoesNotRetileExistingDwindleParent() async {
+        let bundleId = "com.example.full-rescan-dwindle-parent"
+        let controller = makeRefreshTestController(
+            workspaceConfigurations: [
+                WorkspaceConfiguration(name: "1", monitorAssignment: .main, layoutType: .dwindle),
+                WorkspaceConfiguration(name: "2", monitorAssignment: .main, layoutType: .dwindle)
+            ]
+        )
+        defer { cleanupRefreshTestController(controller) }
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let rule = AppRule(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000865")!,
+            bundleId: bundleId,
+            assignToWorkspace: "2"
+        )
+        controller.windowRuleEngine.rebuild(rules: [rule])
+        controller.enableDwindleLayout()
+        await waitForRefreshWork(on: controller)
+        guard let engine = controller.dwindleEngine else {
+            Issue.record("Missing Dwindle engine")
+            return
+        }
+
+        let effects = ManagedWindowRuleEffects(matchedRuleId: rule.id)
+        let parentToken = controller.workspaceManager.addWindow(
+            makeRefreshTestWindow(windowId: 862),
+            pid: getpid(),
+            windowId: 862,
+            to: workspaceId,
+            mode: .tiling,
+            ruleEffects: effects
+        )
+        let siblingToken = controller.workspaceManager.addWindow(
+            makeRefreshTestWindow(windowId: 863),
+            pid: getpid(),
+            windowId: 863,
+            to: workspaceId,
+            mode: .tiling
+        )
+        _ = engine.addWindow(token: parentToken, to: workspaceId, activeWindowFrame: nil)
+        _ = engine.addWindow(token: siblingToken, to: workspaceId, activeWindowFrame: nil)
+        guard let parentNode = engine.findNode(for: parentToken),
+              let siblingNode = engine.findNode(for: siblingToken),
+              let originalRoot = engine.root(for: workspaceId)
+        else {
+            Issue.record("Missing original Dwindle state")
+            return
+        }
+        let originalParentNodeId = parentNode.id
+        let originalSiblingNodeId = siblingNode.id
+        let originalTokens = dwindleTokenSet(controller: controller, workspaceId: workspaceId)
+
+        controller.axManager.currentWindowsAsyncOverride = {
+            [
+                (makeRefreshTestWindow(windowId: 862), getpid(), 862),
+                (makeRefreshTestWindow(windowId: 863), getpid(), 863)
+            ]
+        }
+        controller.axEventHandler.windowFactsProvider = { axRef, _ in
+            makeRefreshTestWindowFacts(
+                bundleId: bundleId,
+                title: axRef.windowId == 862 ? "Parent" : "Sibling",
+                hasFullscreenButton: axRef.windowId != 862
+            )
+        }
+
+        controller.layoutRefreshController.requestFullRescan(reason: .activeSpaceChanged)
+        await waitForSettledRefreshWork(on: controller)
+
+        guard let updatedParentNode = engine.findNode(for: parentToken),
+              let updatedSiblingNode = engine.findNode(for: siblingToken),
+              let updatedRoot = engine.root(for: workspaceId)
+        else {
+            Issue.record("Missing updated Dwindle state")
+            return
+        }
+
+        #expect(controller.workspaceManager.entry(for: parentToken)?.mode == .tiling)
+        #expect(updatedParentNode.id == originalParentNodeId)
+        #expect(updatedSiblingNode.id == originalSiblingNodeId)
+        #expect(updatedRoot === originalRoot)
+        #expect(dwindleTokenSet(controller: controller, workspaceId: workspaceId) == originalTokens)
+    }
+
     @Test @MainActor func workspaceBarRefreshRunsAfterPostLayoutActions() async {
         let controller = makeRefreshTestController()
         defer { cleanupRefreshTestController(controller) }

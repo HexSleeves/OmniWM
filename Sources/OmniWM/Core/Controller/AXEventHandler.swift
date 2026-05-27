@@ -2106,7 +2106,8 @@ final class AXEventHandler: CGSEventDelegate {
                       managedReplacementMetadataMatches(
                           oldToken: destroy.candidate.token,
                           old: destroy.candidate.replacementMetadata,
-                          new: create.candidate.replacementMetadata
+                          new: create.candidate.replacementMetadata,
+                          newFacts: nil
                       )
                 else {
                     continue
@@ -2172,7 +2173,8 @@ final class AXEventHandler: CGSEventDelegate {
             windowLevel: facts.windowServer?.level,
             parentWindowId: normalizedParentWindowId(facts.windowServer?.parentId),
             frame: facts.windowServer?.frame,
-            transientWindowServerEvidence: facts.windowServer?.hasTransientSurfaceEvidence ?? false
+            transientWindowServerEvidence: facts.windowServer?.hasTransientSurfaceEvidence ?? false,
+            degradedWindowServerChildEvidence: facts.degradedWindowServerChildEvidence
         )
     }
 
@@ -2290,7 +2292,12 @@ final class AXEventHandler: CGSEventDelegate {
         func matches(_ oldMetadata: ManagedReplacementMetadata, oldToken: WindowToken) -> Bool {
             var newMetadata = baseMetadata
             newMetadata.workspaceId = oldMetadata.workspaceId
-            return managedReplacementMetadataMatches(oldToken: oldToken, old: oldMetadata, new: newMetadata)
+            return managedReplacementMetadataMatches(
+                oldToken: oldToken,
+                old: oldMetadata,
+                new: newMetadata,
+                newFacts: facts
+            )
         }
 
         for burst in pendingManagedReplacementBursts.values {
@@ -2345,8 +2352,13 @@ final class AXEventHandler: CGSEventDelegate {
     private func managedReplacementMetadataMatches(
         oldToken: WindowToken,
         old: ManagedReplacementMetadata,
-        new: ManagedReplacementMetadata
+        new: ManagedReplacementMetadata,
+        newFacts: WindowRuleFacts?
     ) -> Bool {
+        if managedReplacementIsDirectFloatingChild(oldToken: oldToken, new: new, newFacts: newFacts) {
+            return false
+        }
+
         guard managedReplacementCorrelationPolicy(for: old) != nil,
               managedReplacementCorrelationPolicy(for: new) != nil,
               managedReplacementBundleIdsMatch(old.bundleId, new.bundleId),
@@ -2359,6 +2371,43 @@ final class AXEventHandler: CGSEventDelegate {
         }
 
         return managedReplacementStructuralAnchorsMatch(oldToken: oldToken, old: old, new: new)
+    }
+
+    private func managedReplacementIsDirectFloatingChild(
+        oldToken: WindowToken,
+        new: ManagedReplacementMetadata,
+        newFacts: WindowRuleFacts?
+    ) -> Bool {
+        guard new.mode == .floating,
+              let oldWindowId = UInt32(exactly: oldToken.windowId),
+              new.parentWindowId == oldWindowId
+        else {
+            return false
+        }
+
+        if managedReplacementHasAXChildEvidence(new) {
+            return true
+        }
+
+        if new.degradedWindowServerChildEvidence {
+            return true
+        }
+
+        return newFacts?.degradedWindowServerChildEvidence == true
+    }
+
+    private func managedReplacementHasAXChildEvidence(_ metadata: ManagedReplacementMetadata) -> Bool {
+        if metadata.role == kAXSheetRole as String {
+            return true
+        }
+
+        guard let subrole = metadata.subrole else {
+            return false
+        }
+
+        return subrole == kAXDialogSubrole as String
+            || subrole == kAXSystemDialogSubrole as String
+            || subrole != kAXStandardWindowSubrole as String
     }
 
     private func managedReplacementHasStructuralAnchor(
