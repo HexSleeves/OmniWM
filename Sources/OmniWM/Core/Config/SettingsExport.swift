@@ -24,7 +24,6 @@ struct SettingsExport: Equatable {
     var outerGapTop: Double
     var outerGapBottom: Double
 
-    var niriMaxWindowsPerColumn: Int
     var niriMaxVisibleColumns: Int
     var niriInfiniteLoop: Bool
     var niriCenterFocusedColumn: String
@@ -128,7 +127,6 @@ extension SettingsExport {
             outerGapRight: 0,
             outerGapTop: 0,
             outerGapBottom: 0,
-            niriMaxWindowsPerColumn: 10,
             niriMaxVisibleColumns: 2,
             niriInfiniteLoop: false,
             niriCenterFocusedColumn: CenterFocusedColumn.never.rawValue,

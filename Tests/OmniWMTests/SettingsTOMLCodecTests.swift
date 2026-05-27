@@ -345,6 +345,36 @@ private extension String {
         #expect(decoded.monitorDwindleSettings == export.monitorDwindleSettings)
     }
 
+    @Test func ignoresLegacyNiriRowCapKeys() throws {
+        var export = SettingsExport.defaults()
+        export.monitorNiriSettings = [
+            MonitorNiriSettings(
+                monitorName: "Display C",
+                monitorDisplayId: 3,
+                maxVisibleColumns: 4
+            )
+        ]
+
+        let data = try SettingsTOMLCodec.encode(export)
+        let output = try #require(String(data: data, encoding: .utf8))
+        let legacyKey = "maxWindows" + "PerColumn"
+        let edited = output
+            .replacingOccurrences(
+                of: "maxVisibleColumns = 2",
+                with: "maxVisibleColumns = 2\n\(legacyKey) = 7"
+            )
+            .replacingOccurrences(
+                of: "maxVisibleColumns = 4",
+                with: "maxVisibleColumns = 4\n\(legacyKey) = 3"
+            )
+
+        let decoded = try SettingsTOMLCodec.decode(Data(edited.utf8))
+        #expect(decoded == export)
+
+        let reencoded = try #require(String(data: SettingsTOMLCodec.encode(decoded), encoding: .utf8))
+        #expect(reencoded.contains(legacyKey) == false)
+    }
+
     @Test func decodesUnknownMonitorOverrideEnumValuesAsNil() throws {
         var export = SettingsExport.defaults()
         export.monitorBarSettings = [

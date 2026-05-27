@@ -51,7 +51,6 @@ extension NiriLayoutEngine {
     func globalResolvedSettings() -> ResolvedNiriSettings {
         ResolvedNiriSettings(
             maxVisibleColumns: maxVisibleColumns,
-            maxWindowsPerColumn: maxWindowsPerColumn,
             centerFocusedColumn: centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             singleWindowAspectRatio: singleWindowAspectRatio,
@@ -80,14 +79,6 @@ extension NiriLayoutEngine {
 
     func effectiveMaxVisibleColumns(in workspaceId: WorkspaceDescriptor.ID) -> Int {
         effectiveSettings(in: workspaceId).maxVisibleColumns
-    }
-
-    func effectiveMaxWindowsPerColumn(for monitorId: Monitor.ID) -> Int {
-        effectiveSettings(for: monitorId).maxWindowsPerColumn
-    }
-
-    func effectiveMaxWindowsPerColumn(in workspaceId: WorkspaceDescriptor.ID) -> Int {
-        effectiveSettings(in: workspaceId).maxWindowsPerColumn
     }
 
     func effectiveCenterFocusedColumn(for monitorId: Monitor.ID) -> CenterFocusedColumn {

@@ -267,21 +267,6 @@ private struct GlobalNiriSettingsSection: View {
 
         Section("Niri Layout") {
             SettingsSliderRow(
-                label: "Windows per Column",
-                value: Binding(
-                    get: { Double(settings.niriMaxWindowsPerColumn) },
-                    set: { settings.niriMaxWindowsPerColumn = Int($0) }
-                ),
-                range: 1 ... 10,
-                step: 1,
-                valueText: "\(settings.niriMaxWindowsPerColumn)",
-                valueWidth: 32
-            )
-            .onChange(of: settings.niriMaxWindowsPerColumn) { _, newValue in
-                controller.updateNiriConfig(maxWindowsPerColumn: newValue)
-            }
-
-            SettingsSliderRow(
                 label: "Visible Columns",
                 value: Binding(
                     get: { Double(settings.niriMaxVisibleColumns) },
@@ -433,17 +418,6 @@ private struct MonitorNiriSettingsSection: View {
         let ms = monitorSettings
 
         Section("Niri Layout") {
-            OverridableSlider(
-                label: "Windows per Column",
-                value: ms.maxWindowsPerColumn.map { Double($0) },
-                globalValue: Double(settings.niriMaxWindowsPerColumn),
-                range: 1 ... 10,
-                step: 1,
-                formatter: { "\(Int($0))" },
-                onChange: { newValue in updateSetting { $0.maxWindowsPerColumn = Int(newValue) } },
-                onReset: { updateSetting { $0.maxWindowsPerColumn = nil } }
-            )
-
             OverridableSlider(
                 label: "Visible Columns",
                 value: ms.maxVisibleColumns.map { Double($0) },

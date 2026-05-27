@@ -293,7 +293,7 @@ private func makeCenteredCrossMonitorFixture(
     let controller = fixture.controller
 
     suppressAutomaticRefreshExecution(on: controller)
-    controller.enableNiriLayout(maxWindowsPerColumn: 1, centerFocusedColumn: .always)
+    controller.enableNiriLayout(centerFocusedColumn: .always)
     controller.updateNiriConfig(
         maxVisibleColumns: 2,
         centerFocusedColumn: .always,
@@ -385,7 +385,6 @@ private func makeCenteredCrossMonitorFixture(
         }
 
         controller.enableNiriLayout(
-            maxWindowsPerColumn: 4,
             centerFocusedColumn: .never,
             alwaysCenterSingleColumn: false
         )
@@ -473,7 +472,7 @@ private func makeCenteredCrossMonitorFixture(
         gaps: LayoutGaps,
         area: WorkingAreaContext
     ) {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: visibleCount)
+        let engine = NiriLayoutEngine(maxVisibleColumns: visibleCount)
         engine.centerFocusedColumn = .never
 
         let workspaceId = UUID()
@@ -531,7 +530,6 @@ private func makeCenteredCrossMonitorFixture(
         }
 
         controller.enableNiriLayout(
-            maxWindowsPerColumn: 1,
             centerFocusedColumn: .never,
             alwaysCenterSingleColumn: false
         )
@@ -667,13 +665,11 @@ private func makeCenteredCrossMonitorFixture(
             fatalError("Missing monitor or active workspace for navigate-to-window viewport fixture")
         }
 
-        controller.settings.niriMaxWindowsPerColumn = 1
         controller.settings.niriMaxVisibleColumns = maxVisibleColumns
         controller.settings.niriCenterFocusedColumn = centerFocusedColumn
         controller.settings.niriAlwaysCenterSingleColumn = alwaysCenterSingleColumn
         controller.setOuterGaps(left: outerGapLeft, right: outerGapRight, top: 0, bottom: 0)
         controller.enableNiriLayout(
-            maxWindowsPerColumn: 1,
             centerFocusedColumn: centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
@@ -932,7 +928,6 @@ private func makeCenteredCrossMonitorFixture(
     private func resolvedSettings(
         for engine: NiriLayoutEngine,
         maxVisibleColumns: Int? = nil,
-        maxWindowsPerColumn: Int? = nil,
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
         singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
@@ -941,7 +936,6 @@ private func makeCenteredCrossMonitorFixture(
         let global = engine.globalResolvedSettings()
         return ResolvedNiriSettings(
             maxVisibleColumns: maxVisibleColumns ?? global.maxVisibleColumns,
-            maxWindowsPerColumn: maxWindowsPerColumn ?? global.maxWindowsPerColumn,
             centerFocusedColumn: centerFocusedColumn ?? global.centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn ?? global.alwaysCenterSingleColumn,
             singleWindowAspectRatio: singleWindowAspectRatio ?? global.singleWindowAspectRatio,
@@ -984,7 +978,7 @@ private func makeCenteredCrossMonitorFixture(
         withAnimationClock: Bool = false,
         pidBase: pid_t = 51
     ) -> NeighboringMonitorRevealFixture {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 1)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 1)
         if withAnimationClock {
             engine.animationClock = AnimationClock()
         }
@@ -1054,7 +1048,7 @@ private func makeCenteredCrossMonitorFixture(
         withAnimationClock: Bool = false,
         pidBase: pid_t = 161
     ) -> NeighboringMonitorRevealFixture {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 1)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 1)
         if withAnimationClock {
             engine.animationClock = AnimationClock()
         }
@@ -1120,7 +1114,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func selectionFallbackAfterRemoval_sameSibling() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
 
         let h1 = makeTestHandle()
@@ -1143,7 +1137,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func firstWindowUsesBalancedWidthWhenDefaultWidthIsAutoWhenSingleWindowRatioIsDisabled() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]
         engine.defaultColumnWidth = nil
         engine.singleWindowAspectRatio = .none
@@ -1161,7 +1155,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func firstWindowUsesResolvedMonitorMaxVisibleColumnsWhenDefaultWidthIsAuto() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 1)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 1)
         engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]
         engine.defaultColumnWidth = nil
         engine.singleWindowAspectRatio = .none
@@ -1186,7 +1180,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func singleWindowAspectRatioCentersLoneWindowFrame() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         engine.defaultColumnWidth = nil
         engine.singleWindowAspectRatio = .ratio4x3
         engine.alwaysCenterSingleColumn = false
@@ -1210,7 +1204,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func singleWindowManualWidthOverrideKeepsWindowCenteredWhenAlwaysCenterSingleColumnDisabled() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         engine.defaultColumnWidth = nil
         engine.singleWindowAspectRatio = .ratio4x3
         engine.alwaysCenterSingleColumn = false
@@ -1262,7 +1256,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func singleWindowFullWidthRoundTripRestoresPriorManualWidthAndCentering() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         engine.defaultColumnWidth = nil
         engine.singleWindowAspectRatio = .ratio4x3
         engine.alwaysCenterSingleColumn = false
@@ -1370,7 +1364,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func singleWindowManualWidthTargetFrameMatchesRenderedFrame() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         engine.defaultColumnWidth = nil
         engine.singleWindowAspectRatio = .ratio4x3
         engine.alwaysCenterSingleColumn = false
@@ -1427,7 +1421,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func defaultColumnWidthMatchingPresetKeepsSingleWindowAspectRatioUntilManualResize() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         engine.presetColumnWidths = [
             .proportion(0.85),
             .proportion(1.0),
@@ -1463,7 +1457,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func addingSecondWindowReturnsToNormalColumnSizingAfterSingleWindowOverride() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         engine.defaultColumnWidth = nil
         engine.singleWindowAspectRatio = .ratio4x3
         engine.alwaysCenterSingleColumn = false
@@ -1506,7 +1500,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func additionalWindowUsesExplicitDefaultWidthWhenCreatingNewColumn() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]
         engine.defaultColumnWidth = 0.6
         let wsId = UUID()
@@ -1525,7 +1519,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func selectionFallbackAfterColumnRemoval() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
 
         let h1 = makeTestHandle()
@@ -1559,7 +1553,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func removalTransactionActiveMiddleColumnUsesRightNeighborFallback() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
         let workingFrame = CGRect(x: 0, y: 0, width: 1000, height: 800)
         let gap: CGFloat = 8
@@ -1601,7 +1595,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func removalTransactionRestoresPendingPreviousActivationOffset() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
         let workingFrame = CGRect(x: 0, y: 0, width: 2000, height: 800)
 
@@ -1640,7 +1634,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func removalTransactionClearsPendingPreviousWhenPreviousTargetIsRemoved() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
         let workingFrame = CGRect(x: 0, y: 0, width: 1000, height: 800)
 
@@ -1678,7 +1672,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func removalTransactionBatchExcludesRemovedFallbackTargets() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
         let workingFrame = CGRect(x: 0, y: 0, width: 1000, height: 800)
 
@@ -1728,7 +1722,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func removalTransactionSurvivingColumnTileFallbackAdjustsWithinColumn() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
         let root = NiriRoot(workspaceId: wsId)
         engine.roots[wsId] = root
@@ -1772,7 +1766,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func removalTransactionNoOpDoesNotValidateStaleSelection() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
         let window = engine.addWindow(handle: makeTestHandle(), to: wsId, afterSelection: nil)
         let staleSelection = NodeId()
@@ -1798,7 +1792,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func viewportOffsetAdjustsForInsertionBeforeActive() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
 
         let h1 = makeTestHandle()
@@ -1850,7 +1844,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func constraintApplicationRespectsBounds() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
 
         let h1 = makeTestHandle()
@@ -1966,7 +1960,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func tabbedColumnUsesOnlyOuterGapsForSharedTileFrame() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 1)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 1)
         let workspaceId = UUID()
         let root = NiriRoot(workspaceId: workspaceId)
         engine.roots[workspaceId] = root
@@ -2005,7 +1999,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func verticalTabbedColumnUsesOnlyOuterGapsForSharedTileFrame() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 1)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 1)
         let workspaceId = UUID()
         let root = NiriRoot(workspaceId: workspaceId)
         engine.roots[workspaceId] = root
@@ -2044,7 +2038,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func syncWindowsIdempotency() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
 
         let h1 = makeTestHandle()
@@ -2066,7 +2060,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func syncWindowsKeepsStableNodeForReobservedToken() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
 
         let original = makeTestHandle(pid: 21)
@@ -2087,7 +2081,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func rekeyWindowKeepsNodeAndSelectionStableAcrossSync() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
 
         let handle1 = makeTestHandle(pid: 61)
@@ -2118,7 +2112,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func ensureSelectionVisibleMovesViewport() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
 
         let h1 = makeTestHandle()
@@ -2183,7 +2177,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func centerColumnUsesParentAreaForMaximizedAndAnchorsFullscreen() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 1)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 1)
         let workspaceId = UUID()
         let window = engine.addWindow(
             handle: makeTestHandle(pid: 2_044),
@@ -2258,7 +2252,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func centerVisibleColumnsUsesWorkingAreaOriginWhenFittingVisibleSet() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         let workspaceId = UUID()
         var previousSelection: NodeId?
         for index in 0 ..< 4 {
@@ -2321,7 +2315,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func ensureSelectionVisibleDoesNotShiftFullyVisibleViewportInNeverMode() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         engine.centerFocusedColumn = .never
         engine.alwaysCenterSingleColumn = false
         let wsId = UUID()
@@ -2581,7 +2575,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func moveWindowHorizontalRightExpelsFocusedWindowIntoNewColumn() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
 
         let root = NiriRoot(workspaceId: wsId)
@@ -2629,7 +2623,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func moveWindowHorizontalRightConsumesSingleWindowColumnIntoNeighbor() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
 
         let root = NiriRoot(workspaceId: wsId)
@@ -2680,19 +2674,14 @@ private func makeCenteredCrossMonitorFixture(
         #expect(columnOffset! > 300)
     }
 
-    @Test func moveWindowHorizontalRightConsumesSingleWindowColumnIntoNeighborWhenMonitorOverrideAllowsIt() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+    @Test func moveWindowHorizontalRightConsumesSingleWindowColumnIntoStackedNeighbor() {
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
-        let monitor = makeTestMonitor(displayId: 601, name: "Override", x: 0)
-        attachWorkspace(
-            wsId,
-            to: monitor,
-            engine: engine,
-            resolvedSettings: resolvedSettings(for: engine, maxWindowsPerColumn: 2)
-        )
+        let monitor = makeTestMonitor(displayId: 602, name: "GlobalOnly", x: 0)
+        attachWorkspace(wsId, to: monitor, engine: engine)
 
         guard let root = engine.root(for: wsId) else {
-            Issue.record("Expected mapped workspace root for consume override test")
+            Issue.record("Expected mapped workspace root for consume fallback test")
             return
         }
 
@@ -2702,15 +2691,19 @@ private func makeCenteredCrossMonitorFixture(
         root.appendChild(rightColumn)
         assignFixedWidths(root.columns)
 
-        let leftHandle = makeTestHandle(pid: 181)
-        let rightHandle = makeTestHandle(pid: 182)
+        let leftHandle = makeTestHandle(pid: 183)
+        let rightHandle = makeTestHandle(pid: 184)
+        let stackedHandle = makeTestHandle(pid: 185)
         let leftWindow = NiriWindow(token: leftHandle.id)
         let rightWindow = NiriWindow(token: rightHandle.id)
+        let stackedWindow = NiriWindow(token: stackedHandle.id)
 
         leftColumn.appendChild(leftWindow)
+        rightColumn.appendChild(stackedWindow)
         rightColumn.appendChild(rightWindow)
 
         engine.tokenToNode[leftHandle.id] = leftWindow
+        engine.tokenToNode[stackedHandle.id] = stackedWindow
         engine.tokenToNode[rightHandle.id] = rightWindow
 
         var state = ViewportState()
@@ -2729,58 +2722,11 @@ private func makeCenteredCrossMonitorFixture(
         #expect(moved)
         #expect(columns.count == 1)
         #expect(columns[0] === rightColumn)
-        #expect(columns[0].windowNodes.map(\.token) == [leftHandle.id, rightHandle.id])
-    }
-
-    @Test func moveWindowHorizontalRightDoesNotConsumeSingleWindowColumnIntoNeighborWithoutMonitorOverride() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
-        let wsId = UUID()
-        let monitor = makeTestMonitor(displayId: 602, name: "GlobalOnly", x: 0)
-        attachWorkspace(wsId, to: monitor, engine: engine)
-
-        guard let root = engine.root(for: wsId) else {
-            Issue.record("Expected mapped workspace root for consume fallback test")
-            return
-        }
-
-        let leftColumn = NiriContainer()
-        let rightColumn = NiriContainer()
-        root.appendChild(leftColumn)
-        root.appendChild(rightColumn)
-        assignFixedWidths(root.columns)
-
-        let leftHandle = makeTestHandle(pid: 183)
-        let rightHandle = makeTestHandle(pid: 184)
-        let leftWindow = NiriWindow(token: leftHandle.id)
-        let rightWindow = NiriWindow(token: rightHandle.id)
-
-        leftColumn.appendChild(leftWindow)
-        rightColumn.appendChild(rightWindow)
-
-        engine.tokenToNode[leftHandle.id] = leftWindow
-        engine.tokenToNode[rightHandle.id] = rightWindow
-
-        var state = ViewportState()
-        state.activeColumnIndex = 0
-
-        let moved = engine.moveWindow(
-            leftWindow,
-            direction: .right,
-            in: wsId,
-            state: &state,
-            workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 900),
-            gaps: 8
-        )
-
-        let columns = engine.columns(in: wsId)
-        #expect(!moved)
-        #expect(columns.count == 2)
-        #expect(columns[0].windowNodes.map(\.token) == [leftHandle.id])
-        #expect(columns[1].windowNodes.map(\.token) == [rightHandle.id])
+        #expect(columns[0].windowNodes.map(\.token) == [leftHandle.id, stackedHandle.id, rightHandle.id])
     }
 
     @Test func moveWindowHorizontalLeftConsumesSingleWindowColumnIntoNeighbor() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
 
         let root = NiriRoot(workspaceId: wsId)
@@ -2828,7 +2774,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func ensureSelectionVisibleUsesExplicitPreviousActivePositionAfterColumnRemoval() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         engine.centerFocusedColumn = .never
         engine.alwaysCenterSingleColumn = false
         let wsId = UUID()
@@ -2883,7 +2829,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func moveWindowHorizontalLeftNoOpsAtEdgeWithoutInfiniteLoop() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, infiniteLoop: false)
+        let engine = NiriLayoutEngine(infiniteLoop: false)
         let wsId = UUID()
 
         let root = NiriRoot(workspaceId: wsId)
@@ -2926,7 +2872,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func moveWindowHorizontalLeftWrapsAtEdgeWhenInfiniteLoopIsEnabled() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, infiniteLoop: true)
+        let engine = NiriLayoutEngine(infiniteLoop: true)
         let wsId = UUID()
 
         let root = NiriRoot(workspaceId: wsId)
@@ -2968,7 +2914,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func moveWindowHorizontalLeftWrapsAtEdgeWhenMonitorOverrideEnablesInfiniteLoop() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, infiniteLoop: false)
+        let engine = NiriLayoutEngine(infiniteLoop: false)
         let wsId = UUID()
         let monitor = makeTestMonitor(displayId: 701, name: "Wrap", x: 0)
         attachWorkspace(
@@ -3019,7 +2965,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func ensureSelectionVisibleUsesResolvedMonitorAlwaysCenterSingleColumn() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let engine = NiriLayoutEngine()
         engine.centerFocusedColumn = .never
         engine.alwaysCenterSingleColumn = false
         let wsId = UUID()
@@ -3054,7 +3000,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func ensureSelectionVisibleUsesResolvedMonitorCenterFocusedColumn() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         engine.centerFocusedColumn = .never
         engine.alwaysCenterSingleColumn = false
         let wsId = UUID()
@@ -3090,7 +3036,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func moveWindowVerticalKeepsInColumnReorderBehavior() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
 
         let root = NiriRoot(workspaceId: wsId)
@@ -3143,7 +3089,6 @@ private func makeCenteredCrossMonitorFixture(
         }
 
         controller.enableNiriLayout(
-            maxWindowsPerColumn: 3,
             centerFocusedColumn: .never,
             alwaysCenterSingleColumn: false
         )
@@ -3243,7 +3188,6 @@ private func makeCenteredCrossMonitorFixture(
         }
 
         controller.enableNiriLayout(
-            maxWindowsPerColumn: 4,
             centerFocusedColumn: .never,
             alwaysCenterSingleColumn: false
         )
@@ -3746,7 +3690,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func cleanupRemovedMonitorKeepsWorkspaceRootAuthoritativeForReattach() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let engine = NiriLayoutEngine()
         let oldMonitor = makeTestMonitor(displayId: 100, name: "Old", x: 0)
         let newMonitor = makeTestMonitor(displayId: 200, name: "New", x: 1920)
         let wsId = UUID()
@@ -3770,7 +3714,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func syncWorkspaceAssignmentsAppliesOrientationWhenCreatingMonitor() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         let monitor = makeLayoutPlanTestMonitor(
             displayId: 100,
             name: "Portrait",
@@ -3804,7 +3748,7 @@ private func makeCenteredCrossMonitorFixture(
         )
         let controller = fixture.controller
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
 
@@ -3846,7 +3790,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func syncWorkspaceAssignmentsPreservesNoOpOwnershipWhilePruningStaleCopies() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         let monitors = makeVerticalStackedTestMonitors()
         let lowerWorkspaceId = UUID()
         let upperWorkspaceId = UUID()
@@ -3878,7 +3822,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func moveWorkspaceDoesNotPruneUnrelatedWorkspaceRoots() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         let monitors = makeHorizontalNeighboringTestMonitors()
         let movedWorkspaceId = UUID()
         let untouchedWorkspaceId = UUID()
@@ -3910,7 +3854,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func moveWindowToWorkspaceUsesExplicitDefaultWidthForTargetColumn() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]
         engine.defaultColumnWidth = 0.7
         let sourceWorkspaceId = UUID()
@@ -3939,7 +3883,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func moveLastColumnToWorkspaceLeavesSourceWorkspaceEmpty() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let engine = NiriLayoutEngine()
         let sourceWorkspaceId = UUID()
         let targetWorkspaceId = UUID()
         let window = engine.addWindow(handle: makeTestHandle(pid: 90), to: sourceWorkspaceId, afterSelection: nil)
@@ -3977,7 +3921,6 @@ private func makeCenteredCrossMonitorFixture(
         }
 
         controller.enableNiriLayout(
-            maxWindowsPerColumn: 3,
             centerFocusedColumn: .never,
             alwaysCenterSingleColumn: false
         )
@@ -4032,7 +3975,6 @@ private func makeCenteredCrossMonitorFixture(
         controller.settings.niriCenterFocusedColumn = .never
 
         controller.enableNiriLayout(
-            maxWindowsPerColumn: 1,
             centerFocusedColumn: .never,
             alwaysCenterSingleColumn: false
         )
@@ -4060,7 +4002,6 @@ private func makeCenteredCrossMonitorFixture(
         controller.settings.niriSingleWindowAspectRatio = .ratio4x3
 
         controller.enableNiriLayout(
-            maxWindowsPerColumn: 1,
             centerFocusedColumn: .never,
             alwaysCenterSingleColumn: false
         )
@@ -4092,7 +4033,7 @@ private func makeCenteredCrossMonitorFixture(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
 
@@ -4128,7 +4069,7 @@ private func makeCenteredCrossMonitorFixture(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
 
@@ -4165,7 +4106,7 @@ private func makeCenteredCrossMonitorFixture(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
 
@@ -4218,7 +4159,7 @@ private func makeCenteredCrossMonitorFixture(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
         controller.niriEngine?.presetColumnWidths = [.proportion(1.0), .proportion(0.5)]
@@ -4258,7 +4199,7 @@ private func makeCenteredCrossMonitorFixture(
         }
 
         controller.setBordersEnabled(true)
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         controller.updateNiriConfig(
             maxVisibleColumns: 1,
             centerFocusedColumn: .never,
@@ -4316,7 +4257,7 @@ private func makeCenteredCrossMonitorFixture(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
 
@@ -4361,7 +4302,7 @@ private func makeCenteredCrossMonitorFixture(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
 
@@ -4449,7 +4390,7 @@ private func makeCenteredCrossMonitorFixture(
         let controller = fixture.controller
         let workspaceId = fixture.primaryWorkspaceId
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
 
@@ -4501,7 +4442,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func hiddenLeftRevealPreservesBottomTileHeightOnFirstVisibleFrame() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 1)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 1)
         let wsId = UUID()
 
         let root = NiriRoot(workspaceId: wsId)
@@ -4646,7 +4587,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func fullscreenBottomTileUsesFullMonitorHeightWithoutCarryoverOffset() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 1)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 1)
         engine.animationClock = AnimationClock()
         let wsId = UUID()
 
@@ -5185,7 +5126,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func toggleColumnWidthForwardChoosesNextLargerResolvedPreset() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let engine = NiriLayoutEngine()
         engine.presetColumnWidths = [.fixed(600), .fixed(900)]
         let workspaceId = UUID()
         let window = engine.addWindow(handle: makeTestHandle(), to: workspaceId, afterSelection: nil)
@@ -5217,7 +5158,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func setWindowHeightClampsAgainstOtherWindowMinimums() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 2)
+        let engine = NiriLayoutEngine()
         let workspaceId = UUID()
         let root = engine.ensureRoot(for: workspaceId)
         let column = NiriContainer()
@@ -5323,7 +5264,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func splitUsesExplicitDefaultWidthAndExpelInheritsSourceWidth() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]
         engine.defaultColumnWidth = 0.7
         let wsId = UUID()
@@ -5388,7 +5329,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func expelWindowCopiesFullWidthRestoreState() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         let wsId = UUID()
         let root = NiriRoot(workspaceId: wsId)
         engine.roots[wsId] = root
@@ -5434,7 +5375,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func expelWindowCopiesDesiredWidthButRecomputesCachedWidthFromConstraints() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         let wsId = UUID()
         let root = NiriRoot(workspaceId: wsId)
         engine.roots[wsId] = root
@@ -5479,7 +5420,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func consumeWindowPreservesTargetColumnWidthAndResetsMovedWindowSizing() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
         let root = NiriRoot(workspaceId: wsId)
         engine.roots[wsId] = root
@@ -5533,7 +5474,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func consumeWindowIntoColumnPullsVisualTopFromRightWithoutChangingFocus() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
         let root = NiriRoot(workspaceId: wsId)
         engine.roots[wsId] = root
@@ -5574,7 +5515,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func consumeWindowIntoTabbedColumnPreservesFocusedActiveTab() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
         let root = NiriRoot(workspaceId: wsId)
         engine.roots[wsId] = root
@@ -5620,7 +5561,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func consumeOrExpelWindowCanDisableEdgeWrapForNiriCommand() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, infiniteLoop: true)
+        let engine = NiriLayoutEngine(infiniteLoop: true)
         let wsId = UUID()
         let root = NiriRoot(workspaceId: wsId)
         engine.roots[wsId] = root
@@ -5655,8 +5596,8 @@ private func makeCenteredCrossMonitorFixture(
         #expect(rightColumn.windowNodes.map(\.id) == [rightWindow.id])
     }
 
-    @Test func consumeWindowIntoColumnRespectsMaxWindowsPerColumn() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+    @Test func consumeWindowIntoColumnAllowsStackingPastPreviousRowCap() {
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
         let root = NiriRoot(workspaceId: wsId)
         engine.roots[wsId] = root
@@ -5667,10 +5608,13 @@ private func makeCenteredCrossMonitorFixture(
         root.appendChild(sourceColumn)
 
         let focusedWindow = NiriWindow(token: makeTestHandle(pid: 50).id)
+        let stackedWindow = NiriWindow(token: makeTestHandle(pid: 52).id)
         let sourceWindow = NiriWindow(token: makeTestHandle(pid: 51).id)
         targetColumn.appendChild(focusedWindow)
+        targetColumn.appendChild(stackedWindow)
         sourceColumn.appendChild(sourceWindow)
         engine.tokenToNode[focusedWindow.token] = focusedWindow
+        engine.tokenToNode[stackedWindow.token] = stackedWindow
         engine.tokenToNode[sourceWindow.token] = sourceWindow
 
         var state = ViewportState()
@@ -5682,13 +5626,13 @@ private func makeCenteredCrossMonitorFixture(
             gaps: 8
         )
 
-        #expect(!consumed)
-        #expect(targetColumn.windowNodes.map(\.id) == [focusedWindow.id])
-        #expect(sourceColumn.windowNodes.map(\.id) == [sourceWindow.id])
+        #expect(consumed)
+        #expect(targetColumn.windowNodes.map(\.id) == [sourceWindow.id, focusedWindow.id, stackedWindow.id])
+        #expect(sourceColumn.windowNodes.isEmpty)
     }
 
     @Test func expelWindowResetsMovedWindowSizing() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
         let root = NiriRoot(workspaceId: wsId)
         engine.roots[wsId] = root
@@ -5731,7 +5675,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func expelWindowFromColumnMovesVisualBottomRightWithoutFollowingIt() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
         let root = NiriRoot(workspaceId: wsId)
         engine.roots[wsId] = root
@@ -5771,7 +5715,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func expelWindowFromColumnPreservesNonBottomFocusedActiveTile() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
+        let engine = NiriLayoutEngine()
         let wsId = UUID()
         let root = NiriRoot(workspaceId: wsId)
         engine.roots[wsId] = root
@@ -5814,7 +5758,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func insertWindowInNewColumnUsesExplicitDefaultWidth() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]
         engine.defaultColumnWidth = 0.7
         let wsId = UUID()
@@ -5853,7 +5797,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func insertWindowInNewColumnPlacesWindowImmediatelyRightOfFocusedColumn() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         let wsId = UUID()
         let root = NiriRoot(workspaceId: wsId)
         engine.roots[wsId] = root
@@ -5898,7 +5842,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func moveColumnRightNoOpsAtEdgeEvenWhenInfiniteLoopIsEnabled() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 2, infiniteLoop: true)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 2, infiniteLoop: true)
         let wsId = UUID()
         let root = NiriRoot(workspaceId: wsId)
         engine.roots[wsId] = root
@@ -5938,7 +5882,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func moveColumnRightUsesRemoveInsertOrderAndPreservesViewport() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         let wsId = UUID()
         let root = NiriRoot(workspaceId: wsId)
         engine.roots[wsId] = root
@@ -5991,7 +5935,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func moveColumnToIndexUsesNiriOneBasedClamping() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         let wsId = UUID()
         let root = NiriRoot(workspaceId: wsId)
         engine.roots[wsId] = root
@@ -6105,7 +6049,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func moveWindowToWorkspaceThenInsertColumnPreservesSourceFallbackSelection() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         let sourceWorkspaceId = UUID()
         let targetWorkspaceId = UUID()
 
@@ -6157,7 +6101,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func toggleColumnWidthFollowsOrderedDuplicatePresetsFromExplicitDefaultMatch() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         engine.presetColumnWidths = [
             .proportion(0.85),
             .proportion(1.0),
@@ -6214,7 +6158,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func balanceSizesUsesExplicitDefaultWidthAndResetsManualState() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         engine.presetColumnWidths = [
             .proportion(0.85),
             .proportion(1.0),
@@ -6259,7 +6203,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func explicitDefaultOutsidePresetListReanchorsOnFirstResize() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         engine.presetColumnWidths = [
             .proportion(0.5),
             .proportion(0.85),
@@ -6292,7 +6236,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func balanceSizesFallsBackToAutoWidthWhenDefaultWidthIsAuto() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 4)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 4)
         engine.defaultColumnWidth = nil
         let wsId = UUID()
 
@@ -6321,7 +6265,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func balanceSizesUsesExplicitDefaultWidthWithoutPresetMatch() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 3)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
         engine.presetColumnWidths = [
             .proportion(0.5),
             .proportion(0.85),
@@ -6494,7 +6438,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func partialRevealRemainsVisibleWhenViewportEdgeHasNoNeighboringMonitor() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 1)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 1)
         let wsId = UUID()
         let monitor = makeLayoutPlanTestMonitor(width: 1600, height: 900)
         attachWorkspace(
@@ -6560,7 +6504,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func renderOffsetRevealRemainsVisibleWhenViewportEdgeHasNoNeighboringMonitor() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 1)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 1)
         engine.animationClock = AnimationClock()
         let wsId = UUID()
         let monitor = makeLayoutPlanTestMonitor(width: 1600, height: 900)
@@ -6847,7 +6791,7 @@ private func makeCenteredCrossMonitorFixture(
     }
 
     @Test func partialRevealRemainsVisibleAtOpenVerticalEdgesWithoutNeighboringMonitor() {
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 1)
+        let engine = NiriLayoutEngine(maxVisibleColumns: 1)
         let wsId = UUID()
         let monitor = makeLayoutPlanTestMonitor(width: 900, height: 1600)
         attachWorkspace(
@@ -7008,7 +6952,7 @@ private func makeCenteredCrossMonitorFixture(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
 
@@ -7246,7 +7190,7 @@ private func makeCenteredCrossMonitorFixture(
         let workspaceId = fixture.primaryWorkspaceId
 
         suppressAutomaticRefreshExecution(on: controller)
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
 
@@ -7321,7 +7265,7 @@ private func makeCenteredCrossMonitorFixture(
         _ = controller.workspaceManager.setInteractionMonitor(monitors.lower.id)
 
         suppressAutomaticRefreshExecution(on: controller)
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
 
@@ -7383,7 +7327,7 @@ private func makeCenteredCrossMonitorFixture(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
 
@@ -7447,7 +7391,7 @@ private func makeCenteredCrossMonitorFixture(
         let fixture = makeTwoMonitorLayoutPlanTestController()
         let controller = fixture.controller
         controller.setBordersEnabled(true)
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
 
@@ -7487,7 +7431,7 @@ private func makeCenteredCrossMonitorFixture(
         }
 
         controller.setBordersEnabled(true)
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
 
         let focusedToken = addLayoutPlanTestWindow(
@@ -7529,7 +7473,6 @@ private func makeCenteredCrossMonitorFixture(
 
         controller.setBordersEnabled(true)
         controller.enableNiriLayout(
-            maxWindowsPerColumn: 1,
             centerFocusedColumn: .never,
             alwaysCenterSingleColumn: false
         )
@@ -7694,7 +7637,6 @@ private func makeCenteredCrossMonitorFixture(
         }
 
         controller.enableNiriLayout(
-            maxWindowsPerColumn: 1,
             centerFocusedColumn: .never,
             alwaysCenterSingleColumn: false
         )
@@ -7930,7 +7872,6 @@ private func makeCenteredCrossMonitorFixture(
         }
 
         controller.enableNiriLayout(
-            maxWindowsPerColumn: 1,
             centerFocusedColumn: .never,
             alwaysCenterSingleColumn: false
         )
@@ -8049,7 +7990,6 @@ private func makeCenteredCrossMonitorFixture(
         }
 
         controller.enableNiriLayout(
-            maxWindowsPerColumn: 1,
             centerFocusedColumn: .never,
             alwaysCenterSingleColumn: false
         )
@@ -8199,7 +8139,6 @@ private func makeCenteredCrossMonitorFixture(
         }
 
         controller.enableNiriLayout(
-            maxWindowsPerColumn: 1,
             centerFocusedColumn: .never,
             alwaysCenterSingleColumn: false
         )
@@ -8314,7 +8253,7 @@ private func makeCenteredCrossMonitorFixture(
     @Test @MainActor func visibleSecondaryWorkspacePlanRestoresInactiveHiddenWindows() async throws {
         let fixture = makeTwoMonitorLayoutPlanTestController()
         let controller = fixture.controller
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
 
@@ -8351,7 +8290,7 @@ private func makeCenteredCrossMonitorFixture(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
 

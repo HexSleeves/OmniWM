@@ -1364,12 +1364,11 @@ enum NiriWindowMoveResult {
     // MARK: - Layout Engine Configuration
 
     func enableNiriLayout(
-        maxWindowsPerColumn: Int = 3,
         centerFocusedColumn: CenterFocusedColumn = .never,
         alwaysCenterSingleColumn: Bool = false
     ) {
         guard let controller else { return }
-        let engine = NiriLayoutEngine(maxWindowsPerColumn: maxWindowsPerColumn)
+        let engine = NiriLayoutEngine()
         engine.centerFocusedColumn = centerFocusedColumn
         engine.alwaysCenterSingleColumn = alwaysCenterSingleColumn
         engine.renderStyle.tabIndicatorWidth = TabbedColumnOverlayManager.tabIndicatorWidth
@@ -1412,7 +1411,6 @@ enum NiriWindowMoveResult {
     }
 
     func updateNiriConfig(
-        maxWindowsPerColumn: Int? = nil,
         maxVisibleColumns: Int? = nil,
         infiniteLoop: Bool? = nil,
         centerFocusedColumn: CenterFocusedColumn? = nil,
@@ -1423,7 +1421,6 @@ enum NiriWindowMoveResult {
     ) {
         guard let controller else { return }
         controller.niriEngine?.updateConfiguration(
-            maxWindowsPerColumn: maxWindowsPerColumn,
             maxVisibleColumns: maxVisibleColumns,
             infiniteLoop: infiniteLoop,
             centerFocusedColumn: centerFocusedColumn,

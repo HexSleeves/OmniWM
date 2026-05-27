@@ -374,7 +374,6 @@ struct SettingsExportTests {
         #expect(defaults.outerGapRight == 0)
         #expect(defaults.outerGapTop == 0)
         #expect(defaults.outerGapBottom == 0)
-        #expect(defaults.niriMaxWindowsPerColumn == 10)
         #expect(defaults.niriAlwaysCenterSingleColumn == false)
         #expect(defaults.niriSingleWindowAspectRatio == SingleWindowAspectRatio.none.rawValue)
         #expect(defaults.niriDefaultColumnWidth == 0.5)
@@ -892,7 +891,6 @@ struct HotkeySurfaceTests {
             id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
             monitorName: "Studio Display",
             maxVisibleColumns: 4,
-            maxWindowsPerColumn: 2,
             centerFocusedColumn: .always,
             alwaysCenterSingleColumn: false,
             singleWindowAspectRatio: .ratio16x9,
@@ -1069,7 +1067,6 @@ struct HotkeySurfaceTests {
         #expect(settings.outerGapRight == 0)
         #expect(settings.outerGapTop == 0)
         #expect(settings.outerGapBottom == 0)
-        #expect(settings.niriMaxWindowsPerColumn == 10)
         #expect(settings.niriAlwaysCenterSingleColumn == false)
         #expect(settings.niriSingleWindowAspectRatio == .none)
         #expect(settings.niriDefaultColumnWidth == 0.5)
@@ -1124,7 +1121,6 @@ struct HotkeySurfaceTests {
         #expect(settings.mouseWarpAxis.rawValue == exportDefaults.mouseWarpAxis)
         #expect(settings.mouseWarpMargin == exportDefaults.mouseWarpMargin)
         #expect(settings.gapSize == exportDefaults.gapSize)
-        #expect(settings.niriMaxWindowsPerColumn == exportDefaults.niriMaxWindowsPerColumn)
         #expect(settings.niriMaxVisibleColumns == exportDefaults.niriMaxVisibleColumns)
         #expect(settings.defaultLayoutType.rawValue == exportDefaults.defaultLayoutType)
         #expect(settings.borderWidth == exportDefaults.borderWidth)

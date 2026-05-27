@@ -515,7 +515,6 @@ extension NiriLayoutEngine {
 
         let neighborColumn = cols[neighborIdx]
         guard neighborColumn.id != currentColumn.id else { return false }
-        guard neighborColumn.children.count < effectiveMaxWindowsPerColumn(in: workspaceId) else { return false }
 
         let now = animationClock?.now() ?? CACurrentMediaTime()
         let previousActiveColumnIndex = state.activeColumnIndex
@@ -600,9 +599,6 @@ extension NiriLayoutEngine {
         guard let targetColumnIdx = columnIndex(of: targetColumn, in: workspaceId),
               targetColumnIdx + 1 < cols.count
         else {
-            return false
-        }
-        guard targetColumn.children.count < effectiveMaxWindowsPerColumn(in: workspaceId) else {
             return false
         }
 

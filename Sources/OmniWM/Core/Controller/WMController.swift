@@ -268,13 +268,11 @@ final class WMController {
 
         if niriEngine == nil {
             enableNiriLayout(
-                maxWindowsPerColumn: settings.niriMaxWindowsPerColumn,
                 centerFocusedColumn: settings.niriCenterFocusedColumn,
                 alwaysCenterSingleColumn: settings.niriAlwaysCenterSingleColumn
             )
         }
         updateNiriConfig(
-            maxWindowsPerColumn: settings.niriMaxWindowsPerColumn,
             maxVisibleColumns: settings.niriMaxVisibleColumns,
             infiniteLoop: settings.niriInfiniteLoop,
             centerFocusedColumn: settings.niriCenterFocusedColumn,
@@ -828,12 +826,10 @@ final class WMController {
     }
 
     func enableNiriLayout(
-        maxWindowsPerColumn: Int = 3,
         centerFocusedColumn: CenterFocusedColumn = .never,
         alwaysCenterSingleColumn: Bool = false
     ) {
         niriLayoutHandler.enableNiriLayout(
-            maxWindowsPerColumn: maxWindowsPerColumn,
             centerFocusedColumn: centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
@@ -844,7 +840,6 @@ final class WMController {
     }
 
     func updateNiriConfig(
-        maxWindowsPerColumn: Int? = nil,
         maxVisibleColumns: Int? = nil,
         infiniteLoop: Bool? = nil,
         centerFocusedColumn: CenterFocusedColumn? = nil,
@@ -854,7 +849,6 @@ final class WMController {
         defaultColumnWidth: Double?? = nil
     ) {
         niriLayoutHandler.updateNiriConfig(
-            maxWindowsPerColumn: maxWindowsPerColumn,
             maxVisibleColumns: maxVisibleColumns,
             infiniteLoop: infiniteLoop,
             centerFocusedColumn: centerFocusedColumn,

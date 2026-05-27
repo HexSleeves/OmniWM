@@ -84,10 +84,6 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
-    var niriMaxWindowsPerColumn = SettingsStore.defaultExport.niriMaxWindowsPerColumn {
-        didSet { scheduleSave() }
-    }
-
     var niriMaxVisibleColumns = SettingsStore.defaultExport.niriMaxVisibleColumns {
         didSet { scheduleSave() }
     }
@@ -516,7 +512,6 @@ final class SettingsStore {
             outerGapRight: outerGapRight,
             outerGapTop: outerGapTop,
             outerGapBottom: outerGapBottom,
-            niriMaxWindowsPerColumn: niriMaxWindowsPerColumn,
             niriMaxVisibleColumns: niriMaxVisibleColumns,
             niriInfiniteLoop: niriInfiniteLoop,
             niriCenterFocusedColumn: niriCenterFocusedColumn.rawValue,
@@ -611,7 +606,6 @@ final class SettingsStore {
         outerGapTop = export.outerGapTop
         outerGapBottom = export.outerGapBottom
 
-        niriMaxWindowsPerColumn = export.niriMaxWindowsPerColumn
         niriMaxVisibleColumns = export.niriMaxVisibleColumns
         niriInfiniteLoop = export.niriInfiniteLoop
         niriCenterFocusedColumn = CenterFocusedColumn(rawValue: export.niriCenterFocusedColumn) ?? .never
@@ -1035,7 +1029,6 @@ final class SettingsStore {
     private func resolvedNiriSettings(override: MonitorNiriSettings?) -> ResolvedNiriSettings {
         return ResolvedNiriSettings(
             maxVisibleColumns: override?.maxVisibleColumns ?? niriMaxVisibleColumns,
-            maxWindowsPerColumn: override?.maxWindowsPerColumn ?? niriMaxWindowsPerColumn,
             centerFocusedColumn: override?.centerFocusedColumn ?? niriCenterFocusedColumn,
             alwaysCenterSingleColumn: override?.alwaysCenterSingleColumn ?? niriAlwaysCenterSingleColumn,
             singleWindowAspectRatio: override?.singleWindowAspectRatio ?? niriSingleWindowAspectRatio,

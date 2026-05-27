@@ -143,7 +143,7 @@ private func prepareCommittedTrackpadGestureFixture() async -> (
 ) {
     let controller = makeMouseEventTestController()
     controller.settings.scrollGestureEnabled = true
-    controller.enableNiriLayout(maxWindowsPerColumn: 1)
+    controller.enableNiriLayout()
     await controller.layoutRefreshController.waitForRefreshWorkForTests()
     controller.syncMonitorsToNiriEngine()
 
@@ -247,7 +247,7 @@ private func prepareMouseWheelScrollFixture() async -> (
         name: "Main"
     )
     controller.workspaceManager.applyMonitorConfigurationChange([monitor])
-    controller.enableNiriLayout(maxWindowsPerColumn: 1)
+    controller.enableNiriLayout()
     await controller.layoutRefreshController.waitForRefreshWorkForTests()
     controller.syncMonitorsToNiriEngine()
 
@@ -1156,7 +1156,7 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
             ]
         )
         controller.settings.scrollGestureEnabled = true
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         controller.enableDwindleLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         controller.syncMonitorsToNiriEngine()
@@ -1275,7 +1275,7 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
         let controller = makeMouseEventTestController()
         controller.settings.scrollGestureEnabled = true
         controller.settings.gestureInvertDirection = false
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         controller.syncMonitorsToNiriEngine()
 
@@ -1356,7 +1356,7 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
     @Test @MainActor func trackpadGestureWaitsForNiriRecognitionThreshold() async {
         let controller = makeMouseEventTestController()
         controller.settings.scrollGestureEnabled = true
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         controller.syncMonitorsToNiriEngine()
 
@@ -1495,7 +1495,7 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
     @Test @MainActor func verticalDominantThreeFingerGestureDoesNotScrollViewport() async {
         let controller = makeMouseEventTestController()
         controller.settings.scrollGestureEnabled = true
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         controller.syncMonitorsToNiriEngine()
 
@@ -1542,7 +1542,7 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
         let controller = makeMouseEventTestController()
         controller.settings.scrollGestureEnabled = true
         controller.settings.gestureInvertDirection = false
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         controller.syncMonitorsToNiriEngine()
 
@@ -1669,7 +1669,7 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
             ]
         )
         controller.settings.scrollGestureEnabled = true
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         controller.enableDwindleLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         controller.syncMonitorsToNiriEngine()
@@ -1953,7 +1953,7 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
 
     @Test @MainActor func focusFollowsMouseIgnoresCoveredTileBehindManagedFullscreen() async {
         let controller = makeMouseEventTestController()
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         controller.syncMonitorsToNiriEngine()
         controller.setFocusFollowsMouse(true)
@@ -2023,7 +2023,7 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
 
     @Test @MainActor func focusFollowsMouseActivatesVisibleNiriWindowWithoutRecenteringViewport() async {
         let controller = makeMouseEventTestController()
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         controller.syncMonitorsToNiriEngine()
         controller.setFocusFollowsMouse(true)
@@ -2239,7 +2239,7 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
                 WorkspaceConfiguration(name: "1", monitorAssignment: .main, layoutType: .dwindle)
             ]
         )
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         controller.enableDwindleLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         controller.syncMonitorsToNiriEngine()

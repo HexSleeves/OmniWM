@@ -823,7 +823,7 @@ private func waitUntilAXEventTest(
         controller.hasStartedServices = true
         controller.setBordersEnabled(true)
         controller.setAnimationsEnabled(false, persist: false)
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         controller.updateNiriConfig(
             maxVisibleColumns: 1,
             centerFocusedColumn: .never,
@@ -978,7 +978,7 @@ private func waitUntilAXEventTest(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         controller.updateNiriConfig(
             maxVisibleColumns: 1,
             centerFocusedColumn: .never,
@@ -1075,7 +1075,7 @@ private func waitUntilAXEventTest(
 
         controller.hasStartedServices = true
         controller.setBordersEnabled(true)
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         controller.updateNiriConfig(
             maxVisibleColumns: 1,
             centerFocusedColumn: .never,
@@ -1738,7 +1738,7 @@ private func waitUntilAXEventTest(
 
         controller.hasStartedServices = true
         controller.setBordersEnabled(true)
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         controller.updateNiriConfig(
             maxVisibleColumns: 1,
             centerFocusedColumn: .never,
@@ -1814,7 +1814,7 @@ private func waitUntilAXEventTest(
 
         controller.hasStartedServices = true
         controller.setBordersEnabled(true)
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         controller.updateNiriConfig(
             maxVisibleColumns: 1,
             centerFocusedColumn: .never,
@@ -2811,7 +2811,6 @@ private func waitUntilAXEventTest(
         }
 
         controller.enableNiriLayout(
-            maxWindowsPerColumn: 4,
             centerFocusedColumn: .never,
             alwaysCenterSingleColumn: false
         )
@@ -4546,7 +4545,7 @@ private func waitUntilAXEventTest(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         guard let engine = controller.niriEngine else {
             Issue.record("Missing Niri engine")
@@ -4693,7 +4692,7 @@ private func waitUntilAXEventTest(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         guard let engine = controller.niriEngine else {
             Issue.record("Missing Niri engine")
@@ -4816,7 +4815,7 @@ private func waitUntilAXEventTest(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         guard let engine = controller.niriEngine else {
             Issue.record("Missing Niri engine")
@@ -5465,7 +5464,7 @@ private func waitUntilAXEventTest(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         guard let engine = controller.niriEngine else {
             Issue.record("Missing Niri engine")
@@ -5810,7 +5809,7 @@ private func waitUntilAXEventTest(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         guard let engine = controller.niriEngine else {
             Issue.record("Missing Niri engine")
@@ -5935,7 +5934,7 @@ private func waitUntilAXEventTest(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         guard let engine = controller.niriEngine else {
             Issue.record("Missing Niri engine")
@@ -6053,7 +6052,7 @@ private func waitUntilAXEventTest(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         guard let engine = controller.niriEngine else {
             Issue.record("Missing Niri engine")
@@ -6141,7 +6140,7 @@ private func waitUntilAXEventTest(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         guard let engine = controller.niriEngine else {
             Issue.record("Missing Niri engine")
@@ -6237,7 +6236,7 @@ private func waitUntilAXEventTest(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         guard let engine = controller.niriEngine else {
             Issue.record("Missing Niri engine")
@@ -7485,7 +7484,7 @@ private func waitUntilAXEventTest(
 
             #expect(controller.workspaceManager.setActiveWorkspace(primaryWorkspaceId, on: primaryMonitor.id))
             #expect(controller.workspaceManager.setActiveWorkspace(secondaryWorkspaceId, on: secondaryMonitor.id))
-            controller.enableNiriLayout(maxWindowsPerColumn: 1)
+            controller.enableNiriLayout()
             await controller.layoutRefreshController.waitForRefreshWorkForTests()
             controller.syncMonitorsToNiriEngine()
 
@@ -7851,7 +7850,7 @@ private func waitUntilAXEventTest(
             return
         }
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         guard let engine = controller.niriEngine else {
             Issue.record("Missing Niri engine")
@@ -9274,7 +9273,7 @@ private func waitUntilAXEventTest(
             assignToWorkspace: "2"
         )
         controller.windowRuleEngine.rebuild(rules: [rule])
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
         guard let engine = controller.niriEngine else {
             Issue.record("Missing Niri engine")

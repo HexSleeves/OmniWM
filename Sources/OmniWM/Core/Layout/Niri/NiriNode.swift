@@ -592,10 +592,6 @@ class NiriContainer: NiriNode {
         }
     }
 
-    func isFull(maxWindows: Int) -> Bool {
-        children.count >= maxWindows
-    }
-
     var windowNodes: [NiriWindow] {
         if let cached = _cachedWindowNodes { return cached }
         let result = children.compactMap { $0 as? NiriWindow }

@@ -729,7 +729,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
                 )
                 defer { cleanupRefreshTestController(initialController) }
                 initialController.motionPolicy.animationsEnabled = false
-                initialController.enableNiriLayout(maxWindowsPerColumn: 2)
+                initialController.enableNiriLayout()
                 await waitForRefreshWork(on: initialController)
                 initialController.syncMonitorsToNiriEngine()
 
@@ -816,7 +816,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
                     (makeRefreshTestWindow(windowId: windowId), getpid(), windowId)
                 }
             }
-            relaunchedController.enableNiriLayout(maxWindowsPerColumn: 2)
+            relaunchedController.enableNiriLayout()
             await waitForRefreshWork(on: relaunchedController)
             let bootEntries = relaunchedController.workspaceManager.bootPersistedWindowRestoreCatalogForTests().entries
             #expect(bootEntries.count == 3)
@@ -895,7 +895,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
             assignToWorkspace: "2"
         )
         controller.windowRuleEngine.rebuild(rules: [rule])
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
         guard let engine = controller.niriEngine else {
@@ -1295,7 +1295,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
 
         resetRefreshSpies(on: controller, recorder: recorder)
 
-        controller.updateNiriConfig(maxWindowsPerColumn: 4)
+        controller.updateNiriConfig(maxVisibleColumns: 3)
         await waitForRefreshWork(on: controller)
 
         #expect(controller.layoutRefreshController.debugCounters.relayoutExecutions == 1)
@@ -1752,7 +1752,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
                 "2": .dwindle
             ]
         )
-        controller.enableNiriLayout(maxWindowsPerColumn: 3)
+        controller.enableNiriLayout()
         controller.enableDwindleLayout()
         await waitForRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
@@ -2218,7 +2218,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
         defer { controller.nativeFullscreenPlaceholderManager.removeAll() }
         let lifecycleManager = ServiceLifecycleManager(controller: controller)
         controller.axManager.currentWindowsAsyncOverride = { [] }
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         await waitForRefreshWork(on: controller)
 
         guard let workspaceId = controller.activeWorkspace()?.id else {
@@ -2392,7 +2392,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
                 (makeRefreshTestWindow(windowId: 2612), getpid(), 2612)
             ])
             configureNativeFullscreenTestState(on: controller, visibleWindows: visibleWindows)
-            controller.enableNiriLayout(maxWindowsPerColumn: 1)
+            controller.enableNiriLayout()
             await waitForRefreshWork(on: controller)
 
             controller.layoutRefreshController.requestFullRescan(reason: .startup)
@@ -2464,7 +2464,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
                 (makeRefreshTestWindow(windowId: 2672), getpid(), 2672)
             ])
             configureNativeFullscreenTestState(on: controller, visibleWindows: visibleWindows)
-            controller.enableNiriLayout(maxWindowsPerColumn: 1)
+            controller.enableNiriLayout()
             await waitForRefreshWork(on: controller)
 
             controller.layoutRefreshController.requestFullRescan(reason: .startup)
@@ -2548,7 +2548,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
                 (makeRefreshTestWindow(windowId: 2616), getpid(), 2616)
             ])
             configureNativeFullscreenTestState(on: controller, visibleWindows: visibleWindows)
-            controller.enableNiriLayout(maxWindowsPerColumn: 1)
+            controller.enableNiriLayout()
             await waitForRefreshWork(on: controller)
 
             controller.layoutRefreshController.requestFullRescan(reason: .startup)
@@ -2621,7 +2621,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
         controller.axEventHandler.isFullscreenProvider = { axRef in
             fullscreenWindowIds.contains(axRef.windowId)
         }
-        controller.enableNiriLayout(maxWindowsPerColumn: 2)
+        controller.enableNiriLayout()
         await waitForRefreshWork(on: controller)
 
         controller.layoutRefreshController.requestFullRescan(reason: .startup)
@@ -2745,7 +2745,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
         controller.axEventHandler.isFullscreenProvider = { axRef in
             fullscreenWindowIds.contains(axRef.windowId)
         }
-        controller.enableNiriLayout(maxWindowsPerColumn: 2)
+        controller.enableNiriLayout()
         await waitForRefreshWork(on: controller)
 
         controller.layoutRefreshController.requestFullRescan(reason: .startup)
@@ -2821,7 +2821,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
         controller.axEventHandler.isFullscreenProvider = { axRef in
             fullscreenWindowIds.contains(axRef.windowId)
         }
-        controller.enableNiriLayout(maxWindowsPerColumn: 2)
+        controller.enableNiriLayout()
         controller.hasStartedServices = true
         await waitForRefreshWork(on: controller)
 
@@ -2907,7 +2907,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
         controller.axEventHandler.isFullscreenProvider = { axRef in
             fullscreenWindowIds.contains(axRef.windowId)
         }
-        controller.enableNiriLayout(maxWindowsPerColumn: 2)
+        controller.enableNiriLayout()
         await waitForRefreshWork(on: controller)
 
         controller.layoutRefreshController.requestFullRescan(reason: .startup)
@@ -3154,7 +3154,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
             (makeRefreshTestWindow(windowId: 2655), getpid(), 2655)
         ])
         configureNativeFullscreenTestState(on: controller, visibleWindows: visibleWindows)
-        controller.enableNiriLayout(maxWindowsPerColumn: 2)
+        controller.enableNiriLayout()
         await waitForRefreshWork(on: controller)
 
         controller.layoutRefreshController.requestFullRescan(reason: .startup)
@@ -3273,7 +3273,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
             (makeRefreshTestWindow(windowId: 2675), getpid(), 2675)
         ])
         configureNativeFullscreenTestState(on: controller, visibleWindows: visibleWindows)
-        controller.enableNiriLayout(maxWindowsPerColumn: 2)
+        controller.enableNiriLayout()
         await waitForRefreshWork(on: controller)
 
         controller.layoutRefreshController.requestFullRescan(reason: .startup)
@@ -3368,7 +3368,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
             (makeRefreshTestWindow(windowId: 2665), getpid(), 2665)
         ])
         configureNativeFullscreenTestState(on: controller, visibleWindows: visibleWindows)
-        controller.enableNiriLayout(maxWindowsPerColumn: 2)
+        controller.enableNiriLayout()
         await waitForRefreshWork(on: controller)
 
         controller.layoutRefreshController.requestFullRescan(reason: .startup)
@@ -3719,7 +3719,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
         ])
         controller.axManager.currentWindowsAsyncOverride = { visibleWindows.value }
         controller.axEventHandler.isFullscreenProvider = { _ in false }
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         controller.setBordersEnabled(true)
         await waitForRefreshWork(on: controller)
 
@@ -4271,7 +4271,7 @@ private func syncNiriWorkspaceStatesForRefreshTests(
         var lateCreateWasQueuedDuringFullRescan = false
         var newToken: WindowToken?
 
-        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        controller.enableNiriLayout()
         let primaryHandle = addWindow(
             on: controller,
             workspaceId: fixture.primaryWorkspaceId,

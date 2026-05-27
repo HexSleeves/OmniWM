@@ -64,7 +64,6 @@ struct CanonicalTOMLConfig: Codable, Equatable {
     }
 
     struct Niri: Codable, Equatable {
-        var maxWindowsPerColumn: Int
         var maxVisibleColumns: Int
         var infiniteLoop: Bool
         var centerFocusedColumn: String
@@ -373,12 +372,6 @@ extension CanonicalTOMLConfig.Niri {
         let recovering = decoder.recoversMissingSettingsTOMLKeys
         let defaults = CanonicalTOMLConfig.recoveryDefaults().niri
 
-        maxWindowsPerColumn = try container.decode(
-            Int.self,
-            forKey: .maxWindowsPerColumn,
-            default: defaults.maxWindowsPerColumn,
-            recovering: recovering
-        )
         maxVisibleColumns = try container.decode(Int.self, forKey: .maxVisibleColumns, default: defaults.maxVisibleColumns, recovering: recovering)
         infiniteLoop = try container.decode(Bool.self, forKey: .infiniteLoop, default: defaults.infiniteLoop, recovering: recovering)
         centerFocusedColumn = try container.decode(String.self, forKey: .centerFocusedColumn, default: defaults.centerFocusedColumn, recovering: recovering)
@@ -625,7 +618,6 @@ extension CanonicalTOMLConfig {
             )
         )
         niri = Niri(
-            maxWindowsPerColumn: export.niriMaxWindowsPerColumn,
             maxVisibleColumns: export.niriMaxVisibleColumns,
             infiniteLoop: export.niriInfiniteLoop,
             centerFocusedColumn: export.niriCenterFocusedColumn,
@@ -723,7 +715,6 @@ extension CanonicalTOMLConfig {
             outerGapRight: gaps.outer.right,
             outerGapTop: gaps.outer.top,
             outerGapBottom: gaps.outer.bottom,
-            niriMaxWindowsPerColumn: niri.maxWindowsPerColumn,
             niriMaxVisibleColumns: niri.maxVisibleColumns,
             niriInfiniteLoop: niri.infiniteLoop,
             niriCenterFocusedColumn: niri.centerFocusedColumn,

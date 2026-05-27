@@ -119,7 +119,6 @@ final class NiriLayoutEngine {
     var framePool: [WindowToken: CGRect] = [:]
     var hiddenPool: [WindowToken: HideSide] = [:]
 
-    var maxWindowsPerColumn: Int
     var maxVisibleColumns: Int
     var infiniteLoop: Bool
 
@@ -145,8 +144,7 @@ final class NiriLayoutEngine {
     var presetWindowHeights: [PresetSize] = NiriLayoutEngine.defaultPresetWindowHeights
     var defaultColumnWidth: CGFloat? = 0.5
 
-    init(maxWindowsPerColumn: Int = 10, maxVisibleColumns: Int = 2, infiniteLoop: Bool = false) {
-        self.maxWindowsPerColumn = max(1, min(10, maxWindowsPerColumn))
+    init(maxVisibleColumns: Int = 2, infiniteLoop: Bool = false) {
         self.maxVisibleColumns = max(1, min(5, maxVisibleColumns))
         self.infiniteLoop = infiniteLoop
     }
@@ -321,7 +319,6 @@ final class NiriLayoutEngine {
     }
 
     func updateConfiguration(
-        maxWindowsPerColumn: Int? = nil,
         maxVisibleColumns: Int? = nil,
         infiniteLoop: Bool? = nil,
         centerFocusedColumn: CenterFocusedColumn? = nil,
@@ -330,9 +327,6 @@ final class NiriLayoutEngine {
         presetColumnWidths: [PresetSize]? = nil,
         defaultColumnWidth: CGFloat?? = nil
     ) {
-        if let max = maxWindowsPerColumn {
-            self.maxWindowsPerColumn = max.clamped(to: 1 ... 10)
-        }
         if let max = maxVisibleColumns {
             self.maxVisibleColumns = max.clamped(to: 1 ... 5)
         }
