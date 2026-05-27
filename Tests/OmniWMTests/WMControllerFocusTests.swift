@@ -559,7 +559,8 @@ private func waitForFocusRefresh(on controller: WMController) async {
             }
         )
         let (controller, workspaceId, handle) = makeFocusTestController(windowFocusOperations: operations)
-        controller.workspaceManager.setLayoutReason(.nativeFullscreen, for: handle)
+        _ = controller.workspaceManager.requestNativeFullscreenEnter(handle.id, in: workspaceId)
+        _ = controller.workspaceManager.markNativeFullscreenSuspended(handle.id)
 
         controller.focusWindow(handle)
         await waitForFocusRefresh(on: controller)

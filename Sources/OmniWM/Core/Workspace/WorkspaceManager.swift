@@ -2778,7 +2778,13 @@ final class WorkspaceManager {
     func showsNativeFullscreenPlaceholder(for token: WindowToken) -> Bool {
         guard layoutReason(for: token) == .nativeFullscreen else { return false }
         guard let record = nativeFullscreenRecord(for: token) else { return false }
-        return record.currentToken == token && record.availability == .present && record.transition != .enterRequested
+        guard record.currentToken == token else { return false }
+        switch record.availability {
+        case .present:
+            return record.transition != .enterRequested
+        case .temporarilyUnavailable:
+            return true
+        }
     }
 
     private func nativeFullscreenOriginalToken(for token: WindowToken) -> WindowToken? {

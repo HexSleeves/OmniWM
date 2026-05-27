@@ -2734,6 +2734,110 @@ private func waitUntilAXEventTest(
         #expect(controller.layoutRefreshController.debugCounters.requestedByReason[.axWindowCreated] == nil)
     }
 
+    @Test @MainActor func browserFullscreenCreateSynthesizesNativeRecordBeforeTitleRetry() async {
+        let controller = makeAXEventTestController(trackedBundleId: "com.google.Chrome")
+        defer {
+            controller.axEventHandler.resetDebugStateForTests()
+            controller.nativeFullscreenPlaceholderManager.removeAll()
+        }
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        controller.enableNiriLayout()
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+        guard let engine = controller.niriEngine else {
+            Issue.record("Missing Niri engine")
+            return
+        }
+
+        let originalToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 8067),
+            pid: getpid(),
+            windowId: 8067,
+            to: workspaceId
+        )
+        guard let originalEntry = controller.workspaceManager.entry(for: originalToken) else {
+            Issue.record("Missing original browser fullscreen entry")
+            return
+        }
+        let originalNode = engine.addWindow(
+            token: originalToken,
+            to: workspaceId,
+            afterSelection: nil,
+            focusedToken: originalToken
+        )
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+            state.selectedNodeId = originalNode.id
+            state.activeColumnIndex = 0
+        }
+        _ = controller.workspaceManager.setManagedFocus(
+            originalToken,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+
+        let replacementWindowId: UInt32 = 8068
+        let fullscreenFrame = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            guard windowId == replacementWindowId else { return nil }
+            return makeAXEventWindowInfo(
+                id: windowId,
+                pid: getpid(),
+                title: nil,
+                frame: fullscreenFrame
+            )
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            guard windowId == replacementWindowId else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.isFullscreenProvider = { axRef in
+            axRef.windowId == Int(replacementWindowId)
+        }
+        controller.axEventHandler.windowFactsProvider = { axRef, pid in
+            makeAXEventWindowRuleFacts(
+                bundleId: "com.google.Chrome",
+                title: nil,
+                role: kAXWindowRole as String,
+                subrole: "AXFullScreenWindow",
+                windowServer: makeAXEventWindowInfo(
+                    id: UInt32(axRef.windowId),
+                    pid: pid,
+                    title: nil,
+                    frame: fullscreenFrame
+                )
+            )
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .created(windowId: replacementWindowId, spaceId: 0)
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        let replacementToken = WindowToken(pid: getpid(), windowId: Int(replacementWindowId))
+        guard let replacementEntry = controller.workspaceManager.entry(for: replacementToken),
+              let record = controller.workspaceManager.nativeFullscreenRecord(for: replacementToken)
+        else {
+            Issue.record("Missing synthesized browser native fullscreen state")
+            return
+        }
+
+        #expect(controller.workspaceManager.entry(for: originalToken) == nil)
+        #expect(replacementEntry.handle === originalEntry.handle)
+        #expect(record.originalToken == originalToken)
+        #expect(record.currentToken == replacementToken)
+        #expect(record.availability == .present)
+        if case .suspended = record.transition {} else {
+            Issue.record("Expected synthesized browser fullscreen record to be suspended")
+        }
+        #expect(controller.workspaceManager.layoutReason(for: replacementToken) == .nativeFullscreen)
+        #expect(controller.nativeFullscreenPlaceholderManager.snapshotForTests()[replacementToken] != nil)
+        #expect(controller.layoutRefreshController.debugCounters.requestedByReason[.axWindowCreated] == nil)
+    }
+
     @Test @MainActor func nativeFullscreenReplacementCreateRetriesWhenWindowServerInfoIsInitiallyUnavailable() async {
         let controller = makeAXEventTestController()
         defer { controller.axEventHandler.resetDebugStateForTests() }

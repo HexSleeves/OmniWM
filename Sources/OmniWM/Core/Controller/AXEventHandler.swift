@@ -427,6 +427,18 @@ final class AXEventHandler: CGSEventDelegate {
         }
 
         let windowInfo = resolveWindowInfo(windowId)
+        let nativeFullscreenRestore = restoreNativeFullscreenCreateBeforeAdmissionIfNeeded(
+            windowId: windowId,
+            windowInfo: windowInfo,
+            createPlacementContext: createPlacementContextsByWindowId[windowId]
+        )
+        if nativeFullscreenRestore.restored {
+            completeNativeFullscreenCreateRestore(
+                nativeFullscreenRestore,
+                windowId: windowId
+            )
+            return
+        }
         guard let candidate = prepareCreateCandidate(
             windowId: windowId,
             windowInfo: windowInfo,
@@ -800,6 +812,18 @@ final class AXEventHandler: CGSEventDelegate {
             let token = WindowToken(pid: pid_t(windowInfo.pid), windowId: Int(windowId))
             if controller.workspaceManager.entry(for: token) != nil {
                 discardCreatePlacementContext(windowId: windowId)
+                continue
+            }
+            let nativeFullscreenRestore = restoreNativeFullscreenCreateBeforeAdmissionIfNeeded(
+                windowId: windowId,
+                windowInfo: windowInfo,
+                createPlacementContext: createPlacementContextsByWindowId[windowId]
+            )
+            if nativeFullscreenRestore.restored {
+                completeNativeFullscreenCreateRestore(
+                    nativeFullscreenRestore,
+                    windowId: windowId
+                )
                 continue
             }
             guard let candidate = prepareCreateCandidate(
@@ -1556,7 +1580,10 @@ final class AXEventHandler: CGSEventDelegate {
         let unavailableRecord = controller.workspaceManager.nativeFullscreenUnavailableCandidate(
             for: token.pid,
             activeWorkspaceId: workspaceId
-        )
+        ) ?? (appFullscreen ? synthesizeNativeFullscreenUnavailableRecord(
+            for: token,
+            activeWorkspaceId: workspaceId
+        ) : nil)
         guard let record = unavailableRecord else {
             return .notRestored
         }
@@ -1596,6 +1623,119 @@ final class AXEventHandler: CGSEventDelegate {
         }
 
         return .restored(scheduledRelayout: scheduledRelayout)
+    }
+
+    private func restoreNativeFullscreenCreateBeforeAdmissionIfNeeded(
+        windowId: UInt32,
+        windowInfo: WindowServerInfo?,
+        createPlacementContext: WindowCreatePlacementContext?
+    ) -> NativeFullscreenReplacementRestoreResult {
+        guard let controller,
+              let windowInfo
+        else {
+            return .notRestored
+        }
+
+        let token = WindowToken(pid: pid_t(windowInfo.pid), windowId: Int(windowId))
+        guard controller.workspaceManager.entry(for: token) == nil,
+              let axRef = resolveAXWindowRef(windowId: windowId, pid: token.pid)
+        else {
+            return .notRestored
+        }
+
+        let appFullscreen = isFullscreenProvider?(axRef) ?? AXWindowService.isFullscreen(axRef)
+        guard appFullscreen else { return .notRestored }
+
+        return restoreNativeFullscreenReplacement(
+            token: token,
+            windowId: windowId,
+            axRef: axRef,
+            workspaceId: nativeFullscreenCreateWorkspaceId(createPlacementContext),
+            appFullscreen: true
+        )
+    }
+
+    private func completeNativeFullscreenCreateRestore(
+        _ restore: NativeFullscreenReplacementRestoreResult,
+        windowId: UInt32
+    ) {
+        guard let controller else { return }
+        cancelCreatedWindowRetry(windowId: windowId)
+        discardCreatePlacementContext(windowId: windowId)
+        removeDeferredCreatedWindow(windowId)
+        subscribeToWindows([windowId])
+        if case let .restored(scheduledRelayout) = restore,
+           !scheduledRelayout
+        {
+            controller.layoutRefreshController.requestRelayout(reason: .axWindowCreated)
+        }
+    }
+
+    private func nativeFullscreenCreateWorkspaceId(
+        _ createPlacementContext: WindowCreatePlacementContext?
+    ) -> WorkspaceDescriptor.ID? {
+        createPlacementContext?.focusedWorkspaceId
+            ?? createPlacementContext?.pendingFocusedWorkspaceId
+            ?? controller?.activeWorkspace()?.id
+    }
+
+    private func synthesizeNativeFullscreenUnavailableRecord(
+        for token: WindowToken,
+        activeWorkspaceId: WorkspaceDescriptor.ID?
+    ) -> WorkspaceManager.NativeFullscreenRecord? {
+        guard let controller,
+              controller.workspaceManager.nativeFullscreenRecord(for: token) == nil,
+              controller.workspaceManager.entry(for: token) == nil,
+              let entry = nativeFullscreenOriginCandidate(
+                  for: token,
+                  activeWorkspaceId: activeWorkspaceId
+              )
+        else {
+            return nil
+        }
+
+        _ = controller.workspaceManager.requestNativeFullscreenEnter(entry.token, in: entry.workspaceId)
+        return controller.workspaceManager.markNativeFullscreenTemporarilyUnavailable(entry.token)
+    }
+
+    private func nativeFullscreenOriginCandidate(
+        for token: WindowToken,
+        activeWorkspaceId: WorkspaceDescriptor.ID?
+    ) -> WindowModel.Entry? {
+        guard let controller else { return nil }
+        let workspaceManager = controller.workspaceManager
+
+        func eligible(_ entry: WindowModel.Entry?) -> WindowModel.Entry? {
+            guard let entry,
+                  entry.token != token,
+                  entry.token.pid == token.pid,
+                  entry.mode == .tiling,
+                  activeWorkspaceId.map({ entry.workspaceId == $0 }) ?? true,
+                  !workspaceManager.isScratchpadToken(entry.token),
+                  workspaceManager.hiddenState(for: entry.token)?.isScratchpad != true,
+                  workspaceManager.layoutReason(for: entry.token) == .standard,
+                  workspaceManager.nativeFullscreenRecord(for: entry.token) == nil
+            else {
+                return nil
+            }
+            return entry
+        }
+
+        let focusedCandidates = [
+            workspaceManager.focusedToken,
+            activeWorkspaceId.flatMap { workspaceManager.preferredFocusToken(in: $0) },
+            activeWorkspaceId.flatMap { workspaceManager.lastFocusedToken(in: $0) }
+        ]
+
+        for candidateToken in focusedCandidates.compactMap(\.self) {
+            if let entry = eligible(workspaceManager.entry(for: candidateToken)) {
+                return entry
+            }
+        }
+
+        let samePidEntries = workspaceManager.entries(forPid: token.pid).compactMap(eligible)
+        guard samePidEntries.count == 1 else { return nil }
+        return samePidEntries[0]
     }
 
     @discardableResult
@@ -1692,6 +1832,10 @@ final class AXEventHandler: CGSEventDelegate {
         controller.nativeFullscreenPlaceholderManager.remove(token)
         controller.clearResizePlaceholder(for: token)
         clearManagedFocusState(matching: token, workspaceId: unavailableRecord.workspaceId)
+        controller.layoutRefreshController.requestImmediateRelayout(
+            reason: .appActivationTransition,
+            affectedWorkspaceIds: [unavailableRecord.workspaceId]
+        )
         scheduleNativeFullscreenFollowup(for: unavailableRecord.originalToken)
         return true
     }

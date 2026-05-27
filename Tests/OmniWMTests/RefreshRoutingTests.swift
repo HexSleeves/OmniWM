@@ -2246,6 +2246,38 @@ private func syncNiriWorkspaceStatesForRefreshTests(
         #expect(controller.workspaceManager.layoutReason(for: token) == .nativeFullscreen)
     }
 
+    @Test @MainActor func nativeFullscreenDestroyImmediatelyRetainsPlaceholderInNiri() async {
+        let controller = makeRefreshTestController()
+        defer { controller.nativeFullscreenPlaceholderManager.removeAll() }
+        controller.axManager.currentWindowsAsyncOverride = { [] }
+        controller.enableNiriLayout()
+        await waitForRefreshWork(on: controller)
+
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        let token = controller.workspaceManager.addWindow(
+            makeRefreshTestWindow(windowId: 2602),
+            pid: getpid(),
+            windowId: 2602,
+            to: workspaceId
+        )
+        _ = controller.workspaceManager.rememberFocus(token, in: workspaceId)
+        _ = controller.workspaceManager.requestNativeFullscreenEnter(token, in: workspaceId)
+        _ = controller.workspaceManager.markNativeFullscreenSuspended(token)
+        _ = controller.workspaceManager.enterNonManagedFocus(appFullscreen: true)
+
+        controller.axEventHandler.handleRemoved(token: token)
+        await waitForRefreshWork(on: controller)
+
+        #expect(controller.workspaceManager.nativeFullscreenRecord(for: token)?.availability == .temporarilyUnavailable)
+        #expect(controller.nativeFullscreenPlaceholderManager.snapshotForTests()[token] != nil)
+        #expect(controller.workspaceManager.entry(for: token) != nil)
+        #expect(controller.workspaceManager.layoutReason(for: token) == .nativeFullscreen)
+    }
+
     @Test @MainActor func workspaceTransitionRestoresWorkspaceInactiveFloatingWindowsOnlyOnNewlyVisibleWorkspace()
         async throws
     {

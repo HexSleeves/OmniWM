@@ -1558,6 +1558,36 @@ private func workspaceConfigurations(
         #expect(manager.layoutReason(for: suspended) == .nativeFullscreen)
     }
 
+    @Test @MainActor func temporarilyUnavailableNativeFullscreenRecordShowsPlaceholder() {
+        let defaults = makeWorkspaceManagerTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+        settings.workspaceConfigurations = [
+            WorkspaceConfiguration(name: "1", monitorAssignment: .main)
+        ]
+
+        let manager = WorkspaceManager(settings: settings)
+        let monitor = makeWorkspaceManagerTestMonitor(displayId: 32, name: "Main", x: 0, y: 0)
+        manager.applyMonitorConfigurationChange([monitor])
+
+        guard let workspaceId = manager.workspaceId(for: "1", createIfMissing: true) else {
+            Issue.record("Failed to create workspace")
+            return
+        }
+
+        let handle = addWorkspaceManagerTestHandle(
+            manager: manager,
+            windowId: 2316,
+            pid: 2316,
+            workspaceId: workspaceId
+        )
+        _ = manager.requestNativeFullscreenEnter(handle.id, in: workspaceId)
+        _ = manager.markNativeFullscreenSuspended(handle.id)
+        _ = manager.markNativeFullscreenTemporarilyUnavailable(handle.id)
+
+        #expect(manager.nativeFullscreenRecord(for: handle.id)?.availability == .temporarilyUnavailable)
+        #expect(manager.showsNativeFullscreenPlaceholder(for: handle.id))
+    }
+
     @Test @MainActor func nativeFullscreenRecordWorkspaceFollowsWindowWorkspaceMove() {
         let defaults = makeWorkspaceManagerTestDefaults()
         let settings = SettingsStore(defaults: defaults)
